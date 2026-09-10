@@ -338,6 +338,9 @@ class LayoutPreferenceDataStore @Inject constructor(
         prefs[randomEpisodeEnabledKey] ?: false
     }
 
+    fun randomEpisodeEnabledForProfile(profileId: Int): Flow<Boolean> =
+        factory.get(profileId, FEATURE).data.map { it[randomEpisodeEnabledKey] ?: false }
+
     val startupSplashEnabled: Flow<Boolean> = profileFlow { prefs ->
         prefs[startupSplashEnabledKey] ?: true
     }

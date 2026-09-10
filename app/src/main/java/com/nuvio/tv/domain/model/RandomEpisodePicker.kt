@@ -3,13 +3,20 @@ package com.nuvio.tv.domain.model
 import kotlin.random.Random
 
 internal class RandomEpisodePicker(
-    meta: Meta,
+    private val contentId: String,
+    videos: List<Video>,
     watchedEpisodes: Set<Pair<Int, Int>>,
     episodeProgress: Map<Pair<Int, Int>, WatchProgress>,
     private val random: Random = Random.Default
 ) {
-    private val contentId = meta.id
-    private val episodes = meta.watchableEpisodes()
+    constructor(
+        meta: Meta,
+        watchedEpisodes: Set<Pair<Int, Int>>,
+        episodeProgress: Map<Pair<Int, Int>, WatchProgress>,
+        random: Random = Random.Default
+    ) : this(meta.id, meta.videos, watchedEpisodes, episodeProgress, random)
+
+    private val episodes = videos.watchableEpisodes()
         .filter { it.id.isNotBlank() && (it.episode ?: 0) > 0 }
         .distinctBy { it.season to it.episode }
         .distinctBy { it.id }
@@ -24,8 +31,8 @@ internal class RandomEpisodePicker(
 
     fun isWatched(episode: Video): Boolean = (episode.season to episode.episode) in watchedKeys
 
-    fun find(videoId: String, includeWatched: Boolean): Video? =
-        candidates(includeWatched).firstOrNull { it.id == videoId }
+    fun find(videoId: String, includeWatched: Boolean, current: Pair<Int, Int>? = null): Video? =
+        candidates(includeWatched).firstOrNull { it.id == videoId && it.season to it.episode != current }
 
     fun inheritHistoryFrom(previous: RandomEpisodePicker?) {
         if (previous == null || previous.contentId != contentId) return
@@ -33,8 +40,11 @@ internal class RandomEpisodePicker(
         lastPickedId = previous.lastPickedId
     }
 
-    fun pick(includeWatched: Boolean): Video? {
-        val candidates = candidates(includeWatched)
+    fun pick(includeWatched: Boolean, current: Pair<Int, Int>? = null): Video? {
+        episodes.firstOrNull { it.season to it.episode == current }?.let {
+            shownIds.add(it.id)
+        }
+        val candidates = candidates(includeWatched).filterNot { it.season to it.episode == current }
         if (candidates.isEmpty()) return null
         val unseen = candidates.filterNot { it.id in shownIds }
         val pool = unseen.ifEmpty {
