@@ -40,19 +40,24 @@ internal class RandomEpisodePicker(
         lastPickedId = previous.lastPickedId
     }
 
-    fun pick(includeWatched: Boolean, current: Pair<Int, Int>? = null): Video? {
-        episodes.firstOrNull { it.season to it.episode == current }?.let {
-            shownIds.add(it.id)
-        }
+    fun recordPlayed(current: Pair<Int, Int>) {
+        episodes.firstOrNull { it.season to it.episode == current }?.let { shownIds.add(it.id) }
+    }
+
+    fun pick(
+        includeWatched: Boolean,
+        current: Pair<Int, Int>? = null,
+        consumeSelection: Boolean = true
+    ): Video? {
         val candidates = candidates(includeWatched).filterNot { it.season to it.episode == current }
         if (candidates.isEmpty()) return null
         val unseen = candidates.filterNot { it.id in shownIds }
         val pool = unseen.ifEmpty {
-            shownIds.removeAll(candidates.map { it.id }.toSet())
+            if (consumeSelection) shownIds.removeAll(candidates.map { it.id }.toSet()) else shownIds.clear()
             candidates.filterNot { it.id == lastPickedId }.ifEmpty { candidates }
         }
         return pool.random(random).also {
-            shownIds.add(it.id)
+            if (consumeSelection) shownIds.add(it.id)
             lastPickedId = it.id
         }
     }

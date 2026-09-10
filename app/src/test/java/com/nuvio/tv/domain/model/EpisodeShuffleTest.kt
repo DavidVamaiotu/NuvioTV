@@ -25,13 +25,13 @@ class EpisodeShuffleTest {
     fun `all plays a complete cycle without repeating the current episode`() {
         var current = 1 to 1
         val played = mutableListOf(1)
-        repeat(7) {
+        repeat(23) {
             val next = select(current = current)!!
             assertNotEquals(current, next.season to next.episode)
             played.add(next.episode!!)
             current = next.season!! to next.episode
         }
-        assertEquals((1..8).toSet(), played.toSet())
+        played.chunked(8).forEach { assertEquals((1..8).toSet(), it.toSet()) }
         assertNotEquals(current, select(current = current).let { it?.season to it?.episode })
     }
 
@@ -41,6 +41,15 @@ class EpisodeShuffleTest {
         assertNotEquals(6, next.episode)
         val afterManualChoice = select(current = 1 to 3)!!
         assertNotEquals(3, afterManualChoice.episode)
+    }
+
+    @Test
+    fun `an unplayed next preview stays eligible after choosing a different episode`() {
+        val catalogue = episodes.take(3)
+        val preview = select(videos = catalogue, current = 1 to 1)!!
+        val manual = catalogue.single { it.episode != 1 && it.id != preview.id }
+        val next = select(videos = catalogue, current = manual.season!! to manual.episode!!)!!
+        assertEquals(preview.id, next.id)
     }
 
     @Test

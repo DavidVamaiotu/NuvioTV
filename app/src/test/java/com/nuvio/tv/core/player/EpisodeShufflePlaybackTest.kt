@@ -92,6 +92,12 @@ class EpisodeShufflePlaybackTest {
     }
 
     @Test
+    fun `missing launch season uses the current video to prevent replaying itself`() = runTest {
+        settings.value = settings.value.copy(shows = mapOf(show to EpisodeShuffleSettings(true, true)))
+        assertFalse(service.externalSnapshot(metadata.copy(season = null), episodes.take(1)).hasNextEpisode!!)
+    }
+
+    @Test
     fun `disabled shuffle restores the sequential successor`() = runTest {
         settings.value = settings.value.copy(shows = mapOf(show to EpisodeShuffleSettings(false, true)))
         assertEquals(2, service.externalSnapshot(metadata, episodes).nextEpisode)

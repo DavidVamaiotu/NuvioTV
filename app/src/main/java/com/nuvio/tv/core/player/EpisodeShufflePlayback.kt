@@ -54,7 +54,7 @@ class EpisodeShufflePlayback @Inject constructor(
             shuffle.clearSelection(profileId, contentId, ShuffleSurface.PLAYBACK)
             return PlayerNextEpisodeRules.resolveNextEpisode(videos, season, episode)
         }
-        val remoteWatched = if (profileManager.activeProfileId.value == profileId) {
+        val remoteWatched = if (!state.settings.includeWatched && profileManager.activeProfileId.value == profileId) {
             videos.filter { video ->
                 video.episode?.let { progressRepository.isWatchedByVideoId(video.id, it) } == true
             }.mapNotNull { video -> video.season?.let { it to video.episode!! } }.toSet()
@@ -73,11 +73,13 @@ class EpisodeShufflePlayback @Inject constructor(
     ): ExternalNextEpisodeSnapshot {
         val state = observe(metadata.profileId, metadata.contentId, metadata.contentType).first()
         if (!state.settings.enabled) {
+            shuffle.clearSelection(metadata.profileId, metadata.contentId, ShuffleSurface.PLAYBACK)
             return resolveExternalNextEpisodeSnapshot(videos, metadata.season, metadata.episode)
         }
         val episode = metadata.episode ?: return ExternalNextEpisodeSnapshot.Unknown
+        val season = metadata.season ?: videos.firstOrNull { it.id == metadata.videoId }?.season
         val next = nextEpisode(metadata.profileId, metadata.contentId, videos,
-            metadata.season, episode, state, preferredVideoId)
+            season, episode, state, preferredVideoId)
         return ExternalNextEpisodeSnapshot(
             metadataResolved = true, nextVideoId = next?.id, nextSeason = next?.season,
             nextEpisode = next?.episode, shufflePlayback = true

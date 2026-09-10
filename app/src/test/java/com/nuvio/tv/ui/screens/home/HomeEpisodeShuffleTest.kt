@@ -73,6 +73,16 @@ class HomeEpisodeShuffleTest {
     }
 
     @Test
+    fun `latest resume replaces transient next up and older progress without duplicate focus keys`() {
+        val older = ContinueWatchingItem.InProgress(progress())
+        val latest = ContinueWatchingItem.InProgress(progress().copy(videoId = "show:1:4", episode = 4, lastWatched = 200))
+        val input = HomeUiState(continueWatchingItems = listOf(older, latest), upcomingItems = listOf(upcoming))
+        val output = project(input)
+        assertEquals(listOf(latest.copy(shufflePlayback = true)), output.continueWatchingItems)
+        assertTrue(output.upcomingItems.isEmpty())
+    }
+
+    @Test
     fun `exhausted unwatched pool removes random next up without replacing resume`() {
         val watched = videos.map { it.season!! to it.episode!! }.toSet()
         assertTrue(project(watched = mapOf("show" to watched)).continueWatchingItems.isEmpty())

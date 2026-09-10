@@ -21,7 +21,7 @@ internal fun applyDetailShuffle(
 ): MetaDetailsUiState {
     val meta = state.meta ?: return state
     val settings = profile.settings(meta.id, meta.apiType)
-    val result = state.copy(randomEpisodeEnabled = profile.available, episodeShuffle = settings)
+    val result = state.copy(randomEpisodeEnabled = profile.available, episodeShuffle = settings, shufflePoolEmpty = false)
     if (!settings.enabled) {
         shuffle.clearSelection(profile.profileId, meta.id, ShuffleSurface.DETAIL)
         return result

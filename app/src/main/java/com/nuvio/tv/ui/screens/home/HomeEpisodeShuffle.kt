@@ -45,12 +45,20 @@ internal fun applyHomeShuffle(
     videos: (String, String) -> List<Video>?
 ): HomeUiState {
     if (!profile.available || profile.shows.values.none { it.enabled }) return state
-    val projected = (state.continueWatchingItems + state.upcomingItems).mapNotNull { item ->
+    val items = state.continueWatchingItems + state.upcomingItems
+    val resumable = items.filterIsInstance<ContinueWatchingItem.InProgress>()
+        .filter { profile.settings(it.progress.contentId, it.progress.contentType).enabled }
+        .groupBy { it.progress.contentId }
+        .mapValues { (_, episodes) -> episodes.maxBy { it.progress.lastWatched } }
+    val projected = items.mapNotNull { item ->
         when (item) {
-            is ContinueWatchingItem.InProgress -> item.copy(shufflePlayback =
-                profile.settings(item.progress.contentId, item.progress.contentType).enabled)
+            is ContinueWatchingItem.InProgress -> {
+                val latest = resumable[item.progress.contentId]
+                if (latest != null && latest != item) null else item.copy(shufflePlayback = latest != null)
+            }
             is ContinueWatchingItem.NextUp -> {
                 val info = item.info
+                if (info.contentId in resumable) return@mapNotNull null
                 val settings = profile.settings(info.contentId, info.contentType)
                 if (!settings.enabled) item else {
                     val catalogue = videos(info.contentId, info.contentType) ?: return@mapNotNull null
@@ -69,6 +77,7 @@ internal fun applyHomeShuffle(
             }
         }
     }
-    val (current, upcoming) = splitUpcomingItems(projected, sortMode)
+    val unique = projected.distinctBy { it.shuffleFocusKey ?: continueWatchingItemKey(it) }
+    val (current, upcoming) = splitUpcomingItems(unique, sortMode)
     return state.copy(continueWatchingItems = current, upcomingItems = upcoming)
 }
