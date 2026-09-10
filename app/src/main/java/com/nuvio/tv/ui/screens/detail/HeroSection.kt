@@ -420,7 +420,7 @@ internal fun PlayButton(
                 if (onLongPress != null && native.action == AndroidKeyEvent.ACTION_DOWN) {
                     if (native.keyCode == AndroidKeyEvent.KEYCODE_MENU) {
                         longPressTriggered = true
-                        onLongPress()
+                        if (native.repeatCount == 0) onLongPress()
                         return@onPreviewKeyEvent true
                     }
                 }
@@ -568,10 +568,13 @@ private fun ActionIconButton(
             }
             .onPreviewKeyEvent { event ->
                 val native = event.nativeKeyEvent
+                if (native.action == AndroidKeyEvent.ACTION_DOWN && native.repeatCount == 0 && isSelectKey(native.keyCode)) {
+                    longPressTriggered = false
+                }
                 if (onLongPress != null && native.action == AndroidKeyEvent.ACTION_DOWN) {
                     if (native.keyCode == AndroidKeyEvent.KEYCODE_MENU) {
                         longPressTriggered = true
-                        onLongPress()
+                        if (native.repeatCount == 0) onLongPress()
                         return@onPreviewKeyEvent true
                     }
                 }
