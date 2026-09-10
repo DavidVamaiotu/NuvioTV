@@ -175,35 +175,6 @@ private fun resolveDetailReturnEpisodeFocusTarget(
     return orderedEpisodes[matchedIndex]
 }
 
-private fun resolveHeroPlaybackVideo(
-    meta: Meta,
-    nextToWatch: NextToWatch?,
-    episodesForSeason: List<Video>
-): Video? {
-    if (meta.type != ContentType.SERIES && meta.videos.isEmpty()) return null
-
-    val byId = nextToWatch?.nextVideoId?.let { id ->
-        meta.videos.firstOrNull { it.id == id }
-    }
-    val bySeasonEpisode = if (
-        byId == null &&
-        nextToWatch?.nextSeason != null &&
-        nextToWatch.nextEpisode != null
-    ) {
-        meta.videos.firstOrNull {
-            it.season == nextToWatch.nextSeason && it.episode == nextToWatch.nextEpisode
-        }
-    } else {
-        null
-    }
-    val defaultVideoId = meta.behaviorHints?.defaultVideoId
-    val defaultVideo = meta.videos.firstOrNull {
-        it.id == defaultVideoId && it.available != false
-    }
-
-    return byId ?: bySeasonEpisode ?: defaultVideo ?: episodesForSeason.firstOrNull()
-}
-
 private const val USER_INTERACTION_DISPATCH_DEBOUNCE_MS = 120L
 
 
@@ -617,6 +588,10 @@ fun MetaDetailsScreen(
                         return@LaunchedEffect
                     }
                     playOnLoadConsumed.value = true
+                    if (uiState.shufflePoolEmpty) {
+                        playOnLoadReturnObserved.value = true
+                        return@LaunchedEffect
+                    }
                     playOnLoadHandoffDispatched.value = true
                     if (playOnLoadVideo != null) {
                         if (playOnLoadManually) {
@@ -662,6 +637,9 @@ fun MetaDetailsScreen(
                     episodeWatchedPendingKeys = uiState.episodeWatchedPendingKeys,
                     blurUnwatchedEpisodes = uiState.blurUnwatchedEpisodes,
                     randomEpisodeEnabled = uiState.randomEpisodeEnabled,
+                    episodeShuffle = uiState.episodeShuffle,
+                    shufflePoolEmpty = uiState.shufflePoolEmpty,
+                    onEpisodeShuffleChange = viewModel::setEpisodeShuffle,
                     episodeOptionsOverlayStyle = uiState.episodeOptionsOverlayStyle,
                     showFullReleaseDate = uiState.showFullReleaseDate,
                     overallRatingsVisibility = uiState.overallRatingsVisibility,
@@ -974,6 +952,9 @@ private fun MetaDetailsContent(
     episodeWatchedPendingKeys: Set<String>,
     blurUnwatchedEpisodes: Boolean,
     randomEpisodeEnabled: Boolean,
+    episodeShuffle: com.nuvio.tv.domain.model.EpisodeShuffleSettings,
+    shufflePoolEmpty: Boolean,
+    onEpisodeShuffleChange: (com.nuvio.tv.domain.model.EpisodeShuffleSettings) -> Unit,
     episodeOptionsOverlayStyle: EpisodeOptionsOverlayStyle,
     showFullReleaseDate: Boolean,
     overallRatingsVisibility: HomeImdbRatingsVisibility,
@@ -1799,8 +1780,8 @@ private fun MetaDetailsContent(
                         meta = meta,
                         nextEpisode = nextEpisode,
                         nextToWatch = nextToWatch,
-                        onPlayClick = heroPlayClick,
-                        onPlayLongPress = if (showManualPlayOption || nextToWatch?.isResume == true) {
+                        onPlayClick = { if (shufflePoolEmpty) showRandomEpisodeOverlay = true else heroPlayClick() },
+                        onPlayLongPress = if (!shufflePoolEmpty && (showManualPlayOption || nextToWatch?.isResume == true)) {
                             { showHeroPlayOptionsDialog = true }
                         } else {
                             null
@@ -1819,6 +1800,9 @@ private fun MetaDetailsContent(
                         onTrailerClick = onTrailerButtonClick,
                         showRandomEpisodeButton = showRandomEpisodeButton,
                         onRandomEpisodeClick = { showRandomEpisodeOverlay = true },
+                        episodeShuffle = episodeShuffle,
+                        shufflePoolEmpty = shufflePoolEmpty,
+                        onToggleEpisodeShuffle = { onEpisodeShuffleChange(episodeShuffle.copy(enabled = !episodeShuffle.enabled)) },
                         randomEpisodeFocusRequester = randomEpisodeFocusRequester,
                         hideLogoDuringTrailer = hideLogoDuringTrailer,
                         isTrailerPlaying = isTrailerPlaying,
@@ -2261,6 +2245,8 @@ private fun MetaDetailsContent(
         if (showRandomEpisodeOverlay && showRandomEpisodeButton) {
             RandomEpisodeOverlay(
                 meta = meta,
+                shuffleSettings = episodeShuffle,
+                onShuffleSettingsChange = onEpisodeShuffleChange,
                 watchedEpisodes = watchedEpisodes,
                 episodeProgress = episodeProgressMap,
                 blurUnwatchedEpisodes = blurUnwatchedEpisodes,

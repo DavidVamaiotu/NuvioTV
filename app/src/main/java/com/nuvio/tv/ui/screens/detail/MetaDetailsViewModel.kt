@@ -54,6 +54,8 @@ import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.SharingStarted
+import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.combine
@@ -93,6 +95,8 @@ class MetaDetailsViewModel @Inject constructor(
     private val traktRelatedService: TraktRelatedService,
     private val traktSettingsDataStore: TraktSettingsDataStore,
     private val layoutPreferenceDataStore: LayoutPreferenceDataStore,
+    private val episodeShuffleStore: com.nuvio.tv.data.local.EpisodeShuffleStore,
+    private val episodeShuffle: com.nuvio.tv.domain.model.EpisodeShuffle,
     private val playerSettingsDataStore: PlayerSettingsDataStore,
     private val profileManager: ProfileManager,
     private val metaDetailsSessionState: MetaDetailsSessionState,
@@ -105,7 +109,12 @@ class MetaDetailsViewModel @Inject constructor(
     private val preferredAddonBaseUrl: String? = savedStateHandle["addonBaseUrl"]
 
     private val _uiState = MutableStateFlow(MetaDetailsUiState())
-    val uiState: StateFlow<MetaDetailsUiState> = _uiState.asStateFlow()
+    private val shuffleVisit = System.nanoTime()
+    val uiState: StateFlow<MetaDetailsUiState> = combine(
+        _uiState, episodeShuffleStore.profiles, watchProgressRepository.continueWatching
+    ) { state, profile, progress ->
+        applyDetailShuffle(state, profile, progress, episodeShuffle, shuffleVisit, localizedContext)
+    }.stateIn(viewModelScope, SharingStarted.Eagerly, MetaDetailsUiState())
 
     private val _posterCardCornerRadiusDp = MutableStateFlow(12)
     val posterCardCornerRadiusDp: StateFlow<Int> = _posterCardCornerRadiusDp.asStateFlow()
@@ -158,7 +167,6 @@ class MetaDetailsViewModel @Inject constructor(
         observeMovieWatched()
         observeRelatedWatchedStatus()
         observeBlurUnwatchedEpisodes()
-        observeRandomEpisodeEnabled()
         observeEpisodeOptionsOverlayStyle()
         observeOverallRatingsVisibility()
         observeDetailImdbRatingsVisibility()
@@ -615,13 +623,26 @@ class MetaDetailsViewModel @Inject constructor(
         }
     }
 
-    private fun observeRandomEpisodeEnabled() {
+    fun setEpisodeShuffle(settings: com.nuvio.tv.domain.model.EpisodeShuffleSettings) {
+        val meta = uiState.value.meta ?: return
+        val profileId = profileManager.activeProfileId.value
+        val previous = uiState.value.episodeShuffle
         viewModelScope.launch {
-            layoutPreferenceDataStore.randomEpisodeEnabled
-                .distinctUntilChanged()
-                .collectLatest { enabled ->
-                    _uiState.update { it.copy(randomEpisodeEnabled = enabled) }
+            try {
+                episodeShuffleStore.save(meta.id, settings, profileId)
+                if (previous.enabled != settings.enabled || (settings.enabled && previous.includeWatched != settings.includeWatched)) {
+                    val message = when {
+                        !settings.enabled -> R.string.shuffle_disabled
+                        settings.includeWatched -> R.string.shuffle_enabled_all
+                        else -> R.string.shuffle_enabled_unwatched
+                    }
+                    showMessage(localizedContext.getString(message))
                 }
+            } catch (error: CancellationException) {
+                throw error
+            } catch (_: Exception) {
+                showMessage(localizedContext.getString(R.string.shuffle_save_failed), isError = true)
+            }
         }
     }
 

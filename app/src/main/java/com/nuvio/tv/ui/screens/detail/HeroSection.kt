@@ -101,6 +101,9 @@ fun HeroContentSection(
     trailerAvailable: Boolean = false,
     onTrailerClick: () -> Unit = {},
     showRandomEpisodeButton: Boolean = false,
+    episodeShuffle: com.nuvio.tv.domain.model.EpisodeShuffleSettings = com.nuvio.tv.domain.model.EpisodeShuffleSettings(),
+    shufflePoolEmpty: Boolean = false,
+    onToggleEpisodeShuffle: () -> Unit = {},
     onRandomEpisodeClick: () -> Unit = {},
     randomEpisodeFocusRequester: FocusRequester? = null,
     hideLogoDuringTrailer: Boolean = false,
@@ -301,10 +304,28 @@ fun HeroContentSection(
                                 icon = Icons.Default.Shuffle,
                                 contentDescription = stringResource(R.string.random_episode_title),
                                 onClick = onRandomEpisodeClick,
+                                onLongPress = onToggleEpisodeShuffle,
+                                selected = episodeShuffle.enabled,
+                                selectedContainerColor = NuvioTheme.colors.Primary,
+                                selectedContentColor = NuvioTheme.colors.OnPrimary,
                                 focusRequester = randomEpisodeFocusRequester,
                                 onFocused = onHeroActionFocused
                             )
                         }
+                    }
+
+                    if (showRandomEpisodeButton) {
+                        Text(
+                            text = stringResource(when {
+                                shufflePoolEmpty -> R.string.shuffle_pool_empty
+                                episodeShuffle.enabled && episodeShuffle.includeWatched -> R.string.shuffle_status_all
+                                episodeShuffle.enabled -> R.string.shuffle_status_unwatched
+                                else -> R.string.shuffle_status_off
+                            }),
+                            color = NuvioTheme.colors.TextSecondary,
+                            style = MaterialTheme.typography.bodySmall,
+                            modifier = Modifier.padding(top = NuvioTheme.spacing.sm)
+                        )
                     }
 
                     Spacer(modifier = Modifier.height(NuvioTheme.spacing.lg))
@@ -393,6 +414,9 @@ internal fun PlayButton(
             }
             .onPreviewKeyEvent { event ->
                 val native = event.nativeKeyEvent
+                if (native.action == AndroidKeyEvent.ACTION_DOWN && native.repeatCount == 0 && isSelectKey(native.keyCode)) {
+                    longPressTriggered = false
+                }
                 if (onLongPress != null && native.action == AndroidKeyEvent.ACTION_DOWN) {
                     if (native.keyCode == AndroidKeyEvent.KEYCODE_MENU) {
                         longPressTriggered = true

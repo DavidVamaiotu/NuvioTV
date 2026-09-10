@@ -22,6 +22,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Shuffle
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -77,6 +78,8 @@ private enum class RandomEpisodeFocusTarget {
 @Composable
 internal fun RandomEpisodeOverlay(
     meta: Meta,
+    shuffleSettings: com.nuvio.tv.domain.model.EpisodeShuffleSettings,
+    onShuffleSettingsChange: (com.nuvio.tv.domain.model.EpisodeShuffleSettings) -> Unit,
     watchedEpisodes: Set<Pair<Int, Int>>,
     episodeProgress: Map<Pair<Int, Int>, WatchProgress>,
     blurUnwatchedEpisodes: Boolean,
@@ -94,7 +97,7 @@ internal fun RandomEpisodeOverlay(
         value = updatedPicker
     }
     var selectedEpisode by remember { mutableStateOf<Video?>(null) }
-    var includeWatched by remember { mutableStateOf(false) }
+    var includeWatched by remember { mutableStateOf(shuffleSettings.includeWatched) }
     val choiceFocusRequester = remember { FocusRequester() }
     val playFocusRequester = remember { FocusRequester() }
     val closeFocusRequester = remember { FocusRequester() }
@@ -133,7 +136,7 @@ internal fun RandomEpisodeOverlay(
     val focusTarget = when {
         readyPicker == null || readyPicker.count(true) == 0 -> RandomEpisodeFocusTarget.CLOSE
         isResult -> RandomEpisodeFocusTarget.PLAY
-        readyPicker.count(false) > 0 -> RandomEpisodeFocusTarget.UNWATCHED
+        !includeWatched && readyPicker.count(false) > 0 -> RandomEpisodeFocusTarget.UNWATCHED
         else -> RandomEpisodeFocusTarget.INCLUDE_WATCHED
     }
 
@@ -203,6 +206,16 @@ internal fun RandomEpisodeOverlay(
                         Text(meta.name, style = MaterialTheme.typography.bodyMedium, color = Color.White.copy(alpha = 0.6f), maxLines = 1, overflow = TextOverflow.Ellipsis)
                     }
                     RandomEpisodeButton(
+                        text = stringResource(if (shuffleSettings.enabled) R.string.shuffle_on else R.string.shuffle_off),
+                        icon = Icons.Default.Shuffle,
+                        onClick = { onShuffleSettingsChange(shuffleSettings.copy(enabled = !shuffleSettings.enabled)) },
+                        interactive = !closing,
+                        modifier = Modifier.focusProperties {
+                            up = FocusRequester.Cancel
+                            down = primaryFocusRequester
+                        }
+                    )
+                    RandomEpisodeButton(
                         text = stringResource(R.string.action_close),
                         icon = Icons.Default.Close,
                         onClick = dismiss,
@@ -214,6 +227,11 @@ internal fun RandomEpisodeOverlay(
                         }
                     )
                 }
+                Text(
+                    stringResource(if (shuffleSettings.enabled) R.string.shuffle_picker_enabled else R.string.shuffle_picker_disabled),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = Color.White.copy(alpha = 0.65f)
+                )
                 Row(horizontalArrangement = Arrangement.spacedBy(24.dp)) {
                     Text(
                         stringResource(R.string.random_episode_step_choose),
@@ -248,11 +266,13 @@ internal fun RandomEpisodeOverlay(
                                 if (episode == null) {
                                     RandomEpisodeChoices(
                                         picker = readyPicker,
+                                        includeWatched = includeWatched,
                                         interactive = interactive,
                                         primaryFocusRequester = choiceFocusRequester,
                                         closeFocusRequester = closeFocusRequester,
                                         onChoose = { include ->
                                             includeWatched = include
+                                            onShuffleSettingsChange(shuffleSettings.copy(includeWatched = include))
                                             selectedEpisode = readyPicker.pick(include)
                                         }
                                     )
@@ -292,6 +312,7 @@ internal fun RandomEpisodeOverlay(
 @Composable
 private fun RandomEpisodeChoices(
     picker: RandomEpisodePicker,
+    includeWatched: Boolean,
     interactive: Boolean,
     primaryFocusRequester: FocusRequester,
     closeFocusRequester: FocusRequester,
@@ -313,7 +334,7 @@ private fun RandomEpisodeChoices(
                 interactive = interactive,
                 onClick = { onChoose(false) },
                 modifier = Modifier.fillMaxWidth()
-                    .then(if (unwatchedCount > 0) Modifier.focusRequester(primaryFocusRequester) else Modifier)
+                    .then(if (!includeWatched && unwatchedCount > 0) Modifier.focusRequester(primaryFocusRequester) else Modifier)
                     .focusProperties { up = closeFocusRequester }
             )
             RandomEpisodeButton(
@@ -323,7 +344,7 @@ private fun RandomEpisodeChoices(
                 interactive = interactive,
                 onClick = { onChoose(true) },
                 modifier = Modifier.fillMaxWidth()
-                    .then(if (unwatchedCount == 0) Modifier.focusRequester(primaryFocusRequester) else Modifier)
+                    .then(if (includeWatched || unwatchedCount == 0) Modifier.focusRequester(primaryFocusRequester) else Modifier)
                     .focusProperties {
                         down = FocusRequester.Cancel
                         if (unwatchedCount == 0) up = closeFocusRequester

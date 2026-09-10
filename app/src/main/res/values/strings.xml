@@ -3197,7 +3197,7 @@
     <string name="stream_test_error_connection">Connection failed. The last played stream link may have expired or is unreachable. Please play the video again and retry.</string>
 
     <string name="random_episode_title">Random episode</string>
-    <string name="layout_random_episode_sub">Show a random episode button on series details, with a choice to include or skip watched episodes.</string>
+    <string name="layout_random_episode_sub">Choose random episodes and save shuffle playback for each series. Turning this off pauses shuffle.</string>
     <string name="random_episode_choose_title">What are you in the mood for?</string>
     <string name="random_episode_choose_subtitle">Choose whether to include episodes you have already watched. We will pick one from this show.</string>
     <string name="random_episode_unwatched">Unwatched only</string>
@@ -3225,4 +3225,18 @@
         <item quantity="one">%1$d episode in the mix</item>
         <item quantity="other">%1$d episodes in the mix</item>
     </plurals>
+    <string name="shuffle_on">Shuffle on</string>
+    <string name="shuffle_off">Shuffle off</string>
+    <string name="shuffle_enabled_all">Shuffle on for this series · All episodes</string>
+    <string name="shuffle_enabled_unwatched">Shuffle on for this series · Unwatched only</string>
+    <string name="shuffle_disabled">Shuffle off · Normal episode order restored</string>
+    <string name="shuffle_save_failed">Could not save shuffle settings. Please try again.</string>
+    <string name="shuffle_status_all">Shuffle · All episodes · Hold OK to turn off</string>
+    <string name="shuffle_status_unwatched">Shuffle · Unwatched only · Hold OK to turn off</string>
+    <string name="shuffle_status_off">Pick a random episode · Hold OK to turn shuffle on</string>
+    <string name="shuffle_pool_empty">No episodes left in this shuffle selection. Choose a different selection to continue.</string>
+    <string name="shuffle_change_selection">Change shuffle selection</string>
+    <string name="shuffle_picker_enabled">Shuffle is saved for this series. Playback continues randomly from your selection.</string>
+    <string name="shuffle_picker_disabled">Choose a starting episode, or turn shuffle on to keep playing randomly.</string>
+    <string name="shuffle_badge">Episode shuffle enabled</string>
 </resources>
