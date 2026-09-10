@@ -38,7 +38,8 @@ class EpisodeShuffle @Inject constructor() {
         progress: Map<Pair<Int, Int>, WatchProgress> = emptyMap(),
         surface: ShuffleSurface,
         current: Pair<Int, Int>? = null,
-        visit: Long = 0
+        visit: Long = 0,
+        preferredVideoId: String? = null
     ): Video? {
         val key = Key(profileId, contentId, surface, includeWatched)
         val session = sessions.getOrPut(key, ::Session)
@@ -50,6 +51,7 @@ class EpisodeShuffle @Inject constructor() {
         session.current = current
         session.visit = visit
         session.selected = session.selected?.let { picker.find(it.id, includeWatched, current) }
+            ?: preferredVideoId?.let { picker.find(it, includeWatched, current) }
             ?: picker.pick(includeWatched, current)
         return session.selected
     }
