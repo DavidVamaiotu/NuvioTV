@@ -37,12 +37,19 @@ internal fun EpisodeShuffleDialog(
     watchedEpisodes: Set<Pair<Int, Int>>,
     episodeProgress: Map<Pair<Int, Int>, WatchProgress>,
     onDismiss: () -> Unit,
-    onPlay: (Video) -> Unit
+    onPlay: (Video) -> Unit,
+    blurUnwatchedEpisodes: Boolean = false,
+    showManualPlayOption: Boolean = false,
+    onPlayManually: (Video) -> Unit = onPlay,
+    onStartFromBeginning: (Video) -> Unit = onPlay
 ) {
     val picker by produceState<RandomEpisodePicker?>(null, meta.videos, watchedEpisodes, episodeProgress) {
-        value = withContext(Dispatchers.Default) { RandomEpisodePicker(meta, watchedEpisodes, episodeProgress) }
+        val updated = withContext(Dispatchers.Default) { RandomEpisodePicker(meta, watchedEpisodes, episodeProgress) }
+        updated.inheritHistoryFrom(value)
+        value = updated
     }
     var starting by remember { mutableStateOf(false) }
+    var selectedEpisode by remember { mutableStateOf<Video?>(null) }
     var includeWatched by remember { mutableStateOf(shuffleSettings.includeWatched) }
     val focusRequester = remember { FocusRequester() }
     val scope = rememberCoroutineScope()
@@ -50,31 +57,51 @@ internal fun EpisodeShuffleDialog(
     val unwatchedCount = readyPicker?.count(false) ?: 0
     val allCount = readyPicker?.count(true) ?: 0
     val focusAll = includeWatched || unwatchedCount == 0
+    val previewEpisode = if (starting) selectedEpisode else selectedEpisode?.let { readyPicker?.find(it.id, includeWatched) }
 
-    LaunchedEffect(readyPicker != null, starting, focusAll) {
-        if (readyPicker != null && !starting) focusRequester.requestFocusAfterFrames(frames = 0)
-    }
-
-    fun startShuffle(include: Boolean) {
+    fun playEpisode(play: (Video) -> Unit) {
         if (starting) return
-        val episode = readyPicker?.pick(include) ?: return
-        includeWatched = include
+        val episode = previewEpisode ?: return
+        selectedEpisode = episode
         starting = true
         scope.launch {
             try {
-                if (onSaveSettings(EpisodeShuffleSettings(enabled = true, includeWatched = include))) onPlay(episode)
+                if (onSaveSettings(EpisodeShuffleSettings(enabled = true, includeWatched = includeWatched))) play(episode)
             } finally {
                 starting = false
             }
         }
     }
 
+    if (previewEpisode != null) {
+        EpisodeShufflePreview(
+            meta = meta,
+            episode = previewEpisode,
+            includeWatched = includeWatched,
+            isWatched = readyPicker?.isWatched(previewEpisode) == true,
+            isResume = episodeProgress[previewEpisode.season to previewEpisode.episode]?.isInProgress() == true,
+            showManualPlayOption = showManualPlayOption,
+            blurUnwatchedEpisodes = blurUnwatchedEpisodes,
+            canShuffleAgain = (readyPicker?.count(includeWatched) ?: 0) > 1,
+            starting = starting,
+            onBack = { if (!starting) selectedEpisode = null },
+            onPlay = { playEpisode(onPlay) },
+            onPlayManually = { playEpisode(onPlayManually) },
+            onStartFromBeginning = { playEpisode(onStartFromBeginning) },
+            onShuffleAgain = { if (!starting) selectedEpisode = readyPicker?.pick(includeWatched) }
+        )
+        return
+    }
+
     NuvioDialog(
-        onDismiss = { if (!starting) onDismiss() },
+        onDismiss = onDismiss,
         title = stringResource(R.string.random_episode_title),
-        subtitle = stringResource(if (starting) R.string.shuffle_starting else R.string.shuffle_choose_episodes),
+        subtitle = stringResource(R.string.shuffle_choose_episodes),
         width = 420.dp
     ) {
+        LaunchedEffect(readyPicker != null, focusAll) {
+            if (readyPicker != null) focusRequester.requestFocusAfterFrames()
+        }
         when {
             readyPicker == null -> Text(stringResource(R.string.random_episode_loading))
             allCount == 0 -> {
@@ -86,8 +113,11 @@ internal fun EpisodeShuffleDialog(
             else -> {
                 for (include in listOf(false, true)) {
                     Button(
-                        onClick = { startShuffle(include) },
-                        enabled = !starting && (include || unwatchedCount > 0),
+                        onClick = {
+                            includeWatched = include
+                            selectedEpisode = readyPicker.pick(include)
+                        },
+                        enabled = include || unwatchedCount > 0,
                         modifier = Modifier.fillMaxWidth()
                             .then(if (include == focusAll) Modifier.focusRequester(focusRequester) else Modifier),
                         colors = ButtonDefaults.colors(

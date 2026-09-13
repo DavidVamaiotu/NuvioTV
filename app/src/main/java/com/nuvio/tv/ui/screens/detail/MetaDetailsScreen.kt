@@ -2262,6 +2262,8 @@ private fun MetaDetailsContent(
                 onSaveSettings = onEpisodeShuffleChange,
                 watchedEpisodes = watchedEpisodes,
                 episodeProgress = episodeProgressMap,
+                blurUnwatchedEpisodes = blurUnwatchedEpisodes,
+                showManualPlayOption = showManualPlayOption,
                 onDismiss = {
                     showRandomEpisodeOverlay = false
                     coroutineScope.launch { randomEpisodeFocusRequester.requestFocusAfterFrames() }
@@ -2271,6 +2273,19 @@ private fun MetaDetailsContent(
                     showRandomEpisodeOverlay = false
                     video.season?.let(onSeasonSelected)
                     episodeClick(video)
+                },
+                onPlayManually = { video ->
+                    randomEpisodePlaybackPending = true
+                    showRandomEpisodeOverlay = false
+                    video.season?.let(onSeasonSelected)
+                    episodeManualClick(video)
+                },
+                onStartFromBeginning = { video ->
+                    randomEpisodePlaybackPending = true
+                    showRandomEpisodeOverlay = false
+                    video.season?.let(onSeasonSelected)
+                    markEpisodeRestore(video.id)
+                    onEpisodeStartFromBeginningClick(video)
                 }
             )
         }

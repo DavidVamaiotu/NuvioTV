@@ -3204,7 +3204,12 @@
     <string name="random_episode_caught_up">You have watched every episode. Choose All episodes to watch again.</string>
     <string name="random_episode_loading">Loading episodes…</string>
     <string name="shuffle_starting">Starting shuffle…</string>
-    <string name="shuffle_choose_episodes">Choose episodes to start watching.</string>
+    <string name="shuffle_choose_episodes">Choose which episodes to shuffle.</string>
+    <string name="shuffle_preview_title">Your episode</string>
+    <string name="shuffle_play_episode">Play episode</string>
+    <string name="shuffle_again">Shuffle again</string>
+    <string name="shuffle_only_episode">This is the only episode in your selection.</string>
+    <string name="shuffle_artwork_hidden">Artwork hidden to avoid spoilers</string>
     <string name="shuffle_stop">Stop shuffle</string>
     <string name="shuffle_enabled_all">Shuffle on · All episodes</string>
     <string name="shuffle_enabled_unwatched">Shuffle on · Unwatched episodes</string>
