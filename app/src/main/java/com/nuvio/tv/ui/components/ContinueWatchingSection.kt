@@ -1115,6 +1115,7 @@ fun ContinueWatchingOptionsDialog(
     showPlayManually: Boolean = false,
     onPlayManually: () -> Unit = {}
 ) {
+    val isPlayEnabled = LocalPlaybackAvailability.current.canStream(item)
     val title = when (item) {
         is ContinueWatchingItem.InProgress -> item.progress.name
         is ContinueWatchingItem.NextUp -> item.info.name
@@ -1144,7 +1145,7 @@ fun ContinueWatchingOptionsDialog(
             Text(stringResource(R.string.cw_action_go_to_details))
         }
 
-        if (showPlayManually) {
+        if (showPlayManually && isPlayEnabled) {
             Button(
                 onClick = onPlayManually,
                 colors = ButtonDefaults.colors(
@@ -1157,7 +1158,7 @@ fun ContinueWatchingOptionsDialog(
             }
         }
 
-        if (item is ContinueWatchingItem.InProgress) {
+        if (item is ContinueWatchingItem.InProgress && isPlayEnabled) {
             Button(
                 onClick = onStartFromBeginning,
                 colors = ButtonDefaults.colors(
