@@ -954,7 +954,7 @@ private fun MetaDetailsContent(
     randomEpisodeEnabled: Boolean,
     episodeShuffle: com.nuvio.tv.domain.model.EpisodeShuffleSettings,
     shufflePoolEmpty: Boolean,
-    onEpisodeShuffleChange: (com.nuvio.tv.domain.model.EpisodeShuffleSettings) -> Unit,
+    onEpisodeShuffleChange: suspend (com.nuvio.tv.domain.model.EpisodeShuffleSettings) -> Boolean,
     episodeOptionsOverlayStyle: EpisodeOptionsOverlayStyle,
     showFullReleaseDate: Boolean,
     overallRatingsVisibility: HomeImdbRatingsVisibility,
@@ -1100,10 +1100,11 @@ private fun MetaDetailsContent(
     var showSynopsisOverlay by rememberSaveable(meta.id) { mutableStateOf(false) }
     var showRandomEpisodeOverlay by rememberSaveable(meta.id) { mutableStateOf(false) }
     var randomEpisodePlaybackPending by rememberSaveable(meta.id) { mutableStateOf(false) }
-    val showRandomEpisodeButton = remember(randomEpisodeEnabled, isSeries, meta.videos) {
-        randomEpisodeEnabled && isSeries && meta.videos.any {
+    var stoppingShuffle by remember(meta.id) { mutableStateOf(false) }
+    val showRandomEpisodeButton = remember(randomEpisodeEnabled, isSeries, meta.videos, episodeShuffle.enabled) {
+        randomEpisodeEnabled && isSeries && (episodeShuffle.enabled || meta.videos.any {
             (it.season ?: 0) > 0 && (it.episode ?: 0) > 0
-        }
+        })
     }
     LaunchedEffect(showRandomEpisodeButton) {
         if (!showRandomEpisodeButton) showRandomEpisodeOverlay = false
@@ -1799,10 +1800,22 @@ private fun MetaDetailsContent(
                         trailerAvailable = trailerButtonEnabled && !trailerUrl.isNullOrBlank(),
                         onTrailerClick = onTrailerButtonClick,
                         showRandomEpisodeButton = showRandomEpisodeButton,
-                        onRandomEpisodeClick = { showRandomEpisodeOverlay = true },
+                        onRandomEpisodeClick = {
+                            if (!episodeShuffle.enabled) {
+                                showRandomEpisodeOverlay = true
+                            } else if (!stoppingShuffle) {
+                                stoppingShuffle = true
+                                coroutineScope.launch {
+                                    try {
+                                        onEpisodeShuffleChange(episodeShuffle.copy(enabled = false))
+                                    } finally {
+                                        stoppingShuffle = false
+                                    }
+                                }
+                            }
+                        },
                         episodeShuffle = episodeShuffle,
-                        shufflePoolEmpty = shufflePoolEmpty,
-                        onToggleEpisodeShuffle = { onEpisodeShuffleChange(episodeShuffle.copy(enabled = !episodeShuffle.enabled)) },
+                        shuffleActionPending = stoppingShuffle,
                         randomEpisodeFocusRequester = randomEpisodeFocusRequester,
                         hideLogoDuringTrailer = hideLogoDuringTrailer,
                         isTrailerPlaying = isTrailerPlaying,
@@ -2243,14 +2256,12 @@ private fun MetaDetailsContent(
         }
 
         if (showRandomEpisodeOverlay && showRandomEpisodeButton) {
-            RandomEpisodeOverlay(
+            EpisodeShuffleDialog(
                 meta = meta,
                 shuffleSettings = episodeShuffle,
-                onShuffleSettingsChange = onEpisodeShuffleChange,
+                onSaveSettings = onEpisodeShuffleChange,
                 watchedEpisodes = watchedEpisodes,
                 episodeProgress = episodeProgressMap,
-                blurUnwatchedEpisodes = blurUnwatchedEpisodes,
-                showManualPlayOption = showManualPlayOption,
                 onDismiss = {
                     showRandomEpisodeOverlay = false
                     coroutineScope.launch { randomEpisodeFocusRequester.requestFocusAfterFrames() }
@@ -2260,19 +2271,6 @@ private fun MetaDetailsContent(
                     showRandomEpisodeOverlay = false
                     video.season?.let(onSeasonSelected)
                     episodeClick(video)
-                },
-                onPlayManually = { video ->
-                    randomEpisodePlaybackPending = true
-                    showRandomEpisodeOverlay = false
-                    video.season?.let(onSeasonSelected)
-                    episodeManualClick(video)
-                },
-                onStartFromBeginning = { video ->
-                    randomEpisodePlaybackPending = true
-                    showRandomEpisodeOverlay = false
-                    video.season?.let(onSeasonSelected)
-                    markEpisodeRestore(video.id)
-                    onEpisodeStartFromBeginningClick(video)
                 }
             )
         }

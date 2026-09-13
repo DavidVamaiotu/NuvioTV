@@ -22,7 +22,6 @@ import androidx.compose.ui.test.assertIsFocused
 import androidx.compose.ui.test.assertIsNotEnabled
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onAllNodesWithContentDescription
-import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performSemanticsAction
@@ -40,7 +39,10 @@ import com.nuvio.tv.ui.screens.home.ContinueWatchingItem
 import com.nuvio.tv.ui.screens.home.NextUpInfo
 import com.nuvio.tv.ui.theme.NuvioTheme
 import java.io.File
+import kotlinx.coroutines.CompletableDeferred
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
@@ -61,75 +63,149 @@ class EpisodeShuffleTvTest {
     )
 
     @Test
-    fun savedFilterReceivesFocusAndOpeningKeyReleaseCannotChooseIt() {
-        var settings by mutableStateOf(EpisodeShuffleSettings(true, true))
+    fun unwatchedChoiceStartsShuffleWithoutAnotherScreen() {
+        var settings by mutableStateOf(EpisodeShuffleSettings(false, true))
+        var played: Video? = null
         setContent {
-            RandomEpisodeOverlay(meta, settings, { settings = it }, emptySet(), emptyMap(),
-                false, true, {}, {}, {}, {})
+            EpisodeShuffleDialog(meta, settings, { settings = it; true }, setOf(1 to 1, 1 to 3), emptyMap(),
+                {}, { played = it })
         }
-        compose.onNodeWithText("Include watched").assertIsFocused()
+        compose.onNodeWithText("All episodes").assertIsFocused().assertIsDisplayed()
+        capture("shuffle-choices")
         val down = SystemClock.uptimeMillis()
         instrumentation.sendKeySync(KeyEvent(down, down, KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_DPAD_CENTER, 2))
         instrumentation.sendKeySync(KeyEvent(down, SystemClock.uptimeMillis(), KeyEvent.ACTION_UP, KeyEvent.KEYCODE_DPAD_CENTER, 0))
-        compose.onNodeWithText("What are you in the mood for?").assertIsDisplayed()
-        compose.onNodeWithText("Include watched").assertIsFocused()
-        capture("shuffle-choices")
+        compose.runOnIdle { assertNull(played); assertFalse(settings.enabled) }
+        instrumentation.sendKeyDownUpSync(KeyEvent.KEYCODE_DPAD_UP)
+        compose.onNodeWithText("Unwatched episodes").assertIsFocused()
         instrumentation.sendKeyDownUpSync(KeyEvent.KEYCODE_DPAD_CENTER)
-        compose.onNodeWithText("Your random pick").assertIsDisplayed()
-        capture("shuffle-preview")
-        instrumentation.sendKeyDownUpSync(KeyEvent.KEYCODE_BACK)
-        compose.onNodeWithText("Include watched").assertIsFocused()
-        assertTrue(settings.enabled && settings.includeWatched)
+        compose.runOnIdle {
+            assertEquals(EpisodeShuffleSettings(true, false), settings)
+            assertTrue(played?.episode in listOf(2, 4))
+        }
     }
 
     @Test
-    fun exhaustedUnwatchedPoolOffersAllAndPlaysTheDisplayedEpisode() {
-        var settings by mutableStateOf(EpisodeShuffleSettings(true, false))
+    fun caughtUpShowsOfferAllEpisodesAndStartImmediately() {
+        var settings by mutableStateOf(EpisodeShuffleSettings())
         var played: Video? = null
         val onlyEpisode = videos.first()
         setContent {
-            RandomEpisodeOverlay(meta.copy(videos = listOf(onlyEpisode)), settings, { settings = it },
-                setOf(1 to 1), emptyMap(), true, true, {}, { played = it }, {}, {})
+            EpisodeShuffleDialog(meta.copy(videos = listOf(onlyEpisode)), settings, { settings = it; true },
+                setOf(1 to 1), emptyMap(), {}, { played = it })
         }
-        compose.onNodeWithText("Unwatched only").assertIsNotEnabled()
-        compose.onNodeWithText("Include watched").assertIsFocused()
+        compose.onNodeWithText("Unwatched episodes").assertIsNotEnabled()
+        compose.onNodeWithText("All episodes").assertIsFocused().assertIsDisplayed()
+        capture("shuffle-caught-up")
         instrumentation.sendKeyDownUpSync(KeyEvent.KEYCODE_DPAD_CENTER)
-        compose.onNodeWithText("Your random pick").assertIsDisplayed()
-        compose.onNodeWithText("Play").assertIsFocused()
-        instrumentation.sendKeyDownUpSync(KeyEvent.KEYCODE_DPAD_CENTER)
-        compose.runOnIdle { assertEquals(onlyEpisode, played); assertTrue(settings.includeWatched) }
+        compose.runOnIdle {
+            assertEquals(onlyEpisode, played)
+            assertEquals(EpisodeShuffleSettings(true, true), settings)
+        }
     }
 
     @Test
-    fun heldSelectAndMenuToggleOnceAndLeaveShortPressAvailable() {
+    fun playbackWaitsForSavingAndIgnoresRepeatedInput() {
         var settings by mutableStateOf(EpisodeShuffleSettings())
-        var toggles = 0
+        val saved = CompletableDeferred<Unit>()
+        var saves = 0
+        var dismissals = 0
+        var played: Video? = null
+        setContent {
+            EpisodeShuffleDialog(meta, settings, {
+                saves++
+                saved.await()
+                settings = it
+                true
+            }, emptySet(), emptyMap(), { dismissals++ }, { played = it })
+        }
+        compose.onNodeWithText("Unwatched episodes").assertIsFocused()
+        instrumentation.sendKeyDownUpSync(KeyEvent.KEYCODE_DPAD_CENTER)
+        compose.onNodeWithText("Starting shuffle…").assertIsDisplayed()
+        instrumentation.sendKeyDownUpSync(KeyEvent.KEYCODE_DPAD_CENTER)
+        instrumentation.sendKeyDownUpSync(KeyEvent.KEYCODE_BACK)
+        compose.runOnIdle {
+            assertEquals(1, saves)
+            assertEquals(0, dismissals)
+            assertNull(played)
+            assertFalse(settings.enabled)
+            saved.complete(Unit)
+        }
+        compose.waitForIdle()
+        compose.runOnIdle { assertEquals(EpisodeShuffleSettings(true, false), settings); assertTrue(played != null) }
+    }
+
+    @Test
+    fun failedSaveAllowsRetryWithoutStartingPlayback() {
+        var settings by mutableStateOf(EpisodeShuffleSettings(false, true))
+        var allowSave = false
+        var played: Video? = null
+        setContent {
+            EpisodeShuffleDialog(meta, settings, {
+                if (allowSave) settings = it
+                allowSave
+            }, emptySet(), emptyMap(), {}, { played = it })
+        }
+        compose.onNodeWithText("All episodes").assertIsFocused()
+        instrumentation.sendKeyDownUpSync(KeyEvent.KEYCODE_DPAD_CENTER)
+        compose.runOnIdle { assertNull(played); assertFalse(settings.enabled); allowSave = true }
+        compose.onNodeWithText("All episodes").assertIsFocused()
+        instrumentation.sendKeyDownUpSync(KeyEvent.KEYCODE_DPAD_CENTER)
+        compose.runOnIdle { assertEquals(EpisodeShuffleSettings(true, true), settings); assertTrue(played != null) }
+    }
+
+    @Test
+    fun backLeavesSavedSettingsAlone() {
+        val settings = EpisodeShuffleSettings(false, true)
+        var saves = 0
+        var dismissals = 0
+        setContent {
+            EpisodeShuffleDialog(meta, settings, { saves++; true }, emptySet(), emptyMap(), { dismissals++ }, {})
+        }
+        compose.onNodeWithText("All episodes").assertIsFocused()
+        instrumentation.sendKeyDownUpSync(KeyEvent.KEYCODE_BACK)
+        compose.runOnIdle { assertEquals(1, dismissals); assertEquals(0, saves) }
+    }
+
+    @Test
+    fun emptyEpisodeListsHaveAnExit() {
+        var dismissals = 0
+        setContent {
+            EpisodeShuffleDialog(meta.copy(videos = emptyList()), EpisodeShuffleSettings(), { true },
+                emptySet(), emptyMap(), { dismissals++ }, {})
+        }
+        compose.onNodeWithText("No episodes are available to shuffle.").assertIsDisplayed()
+        compose.onNodeWithText("Close").assertIsFocused()
+        instrumentation.sendKeyDownUpSync(KeyEvent.KEYCODE_DPAD_CENTER)
+        compose.runOnIdle { assertEquals(1, dismissals) }
+    }
+
+    @Test
+    fun theSameButtonStopsShuffleAndThenOffersShuffleAgain() {
+        var settings by mutableStateOf(EpisodeShuffleSettings(true, false))
+        var stops = 0
         var opens = 0
         setContent {
             HeroContentSection(meta, null, null, onPlayClick = {}, isInLibrary = false,
                 onToggleLibrary = {}, onLibraryLongPress = {}, isMovieWatched = false,
                 isMovieWatchedPending = false, onToggleMovieWatched = {}, showRandomEpisodeButton = true,
-                episodeShuffle = settings, onRandomEpisodeClick = { opens++ },
-                onToggleEpisodeShuffle = { settings = settings.copy(enabled = !settings.enabled); toggles++ })
+                episodeShuffle = settings, onRandomEpisodeClick = {
+                    if (settings.enabled) { settings = settings.copy(enabled = false); stops++ } else opens++
+                })
         }
-        val button = compose.onNodeWithContentDescription("Random episode")
-        button.performSemanticsAction(SemanticsActions.RequestFocus) { it() }
-        val keys = listOf(KeyEvent.KEYCODE_DPAD_CENTER, KeyEvent.KEYCODE_ENTER,
-            KeyEvent.KEYCODE_NUMPAD_ENTER, KeyEvent.KEYCODE_MENU)
-        keys.forEachIndexed { index, key ->
-            val down = SystemClock.uptimeMillis()
-            instrumentation.sendKeySync(KeyEvent(down, down, KeyEvent.ACTION_DOWN, key, 0))
-            instrumentation.sendKeySync(KeyEvent(down, SystemClock.uptimeMillis(), KeyEvent.ACTION_DOWN, key, 1))
-            instrumentation.sendKeySync(KeyEvent(down, SystemClock.uptimeMillis(), KeyEvent.ACTION_DOWN, key, 2))
-            instrumentation.sendKeySync(KeyEvent(down, SystemClock.uptimeMillis(), KeyEvent.ACTION_UP, key, 0))
-            compose.runOnIdle { assertEquals(index + 1, toggles); assertEquals(index, opens) }
-            instrumentation.sendKeyDownUpSync(KeyEvent.KEYCODE_DPAD_CENTER)
-            compose.runOnIdle { assertEquals(index + 1, opens) }
-        }
-        instrumentation.sendKeyDownUpSync(KeyEvent.KEYCODE_MENU)
-        compose.runOnIdle { assertEquals(5, toggles); assertEquals(4, opens) }
-        compose.onNodeWithText("Shuffle · Unwatched only · Hold OK to turn off").assertIsDisplayed()
+        compose.onNodeWithText("Stop shuffle").performSemanticsAction(SemanticsActions.RequestFocus) { it() }
         capture("shuffle-detail-controls")
+        val down = SystemClock.uptimeMillis()
+        instrumentation.sendKeySync(KeyEvent(down, down, KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_DPAD_CENTER, 0))
+        instrumentation.sendKeySync(KeyEvent(down, SystemClock.uptimeMillis(), KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_DPAD_CENTER, 1))
+        instrumentation.sendKeySync(KeyEvent(down, SystemClock.uptimeMillis(), KeyEvent.ACTION_UP, KeyEvent.KEYCODE_DPAD_CENTER, 0))
+        compose.onNodeWithText("Shuffle").assertIsFocused().assertIsDisplayed()
+        compose.runOnIdle { assertEquals(1, stops); assertEquals(0, opens) }
+        capture("shuffle-controls-off")
+        instrumentation.sendKeyDownUpSync(KeyEvent.KEYCODE_MENU)
+        compose.runOnIdle { assertEquals(1, stops); assertEquals(0, opens) }
+        instrumentation.sendKeyDownUpSync(KeyEvent.KEYCODE_DPAD_CENTER)
+        compose.runOnIdle { assertEquals(1, opens) }
     }
 
     @Test

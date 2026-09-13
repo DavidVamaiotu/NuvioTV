@@ -623,26 +623,27 @@ class MetaDetailsViewModel @Inject constructor(
         }
     }
 
-    fun setEpisodeShuffle(settings: com.nuvio.tv.domain.model.EpisodeShuffleSettings) {
-        val meta = uiState.value.meta ?: return
+    suspend fun setEpisodeShuffle(settings: com.nuvio.tv.domain.model.EpisodeShuffleSettings): Boolean {
+        val meta = uiState.value.meta ?: return false
         val profileId = profileManager.activeProfileId.value
         val previous = uiState.value.episodeShuffle
-        viewModelScope.launch {
-            try {
-                episodeShuffleStore.save(meta.id, settings, profileId)
-                if (previous.enabled != settings.enabled || (settings.enabled && previous.includeWatched != settings.includeWatched)) {
-                    val message = when {
-                        !settings.enabled -> R.string.shuffle_disabled
-                        settings.includeWatched -> R.string.shuffle_enabled_all
-                        else -> R.string.shuffle_enabled_unwatched
-                    }
-                    showMessage(localizedContext.getString(message))
+        return try {
+            episodeShuffleStore.save(meta.id, settings, profileId)
+            if (profileManager.activeProfileId.value != profileId) return false
+            if (previous.enabled != settings.enabled || (settings.enabled && previous.includeWatched != settings.includeWatched)) {
+                val message = when {
+                    !settings.enabled -> R.string.shuffle_disabled
+                    settings.includeWatched -> R.string.shuffle_enabled_all
+                    else -> R.string.shuffle_enabled_unwatched
                 }
-            } catch (error: CancellationException) {
-                throw error
-            } catch (_: Exception) {
-                showMessage(localizedContext.getString(R.string.shuffle_save_failed), isError = true)
+                showMessage(localizedContext.getString(message))
             }
+            true
+        } catch (error: CancellationException) {
+            throw error
+        } catch (_: Exception) {
+            showMessage(localizedContext.getString(R.string.shuffle_save_failed), isError = true)
+            false
         }
     }
 

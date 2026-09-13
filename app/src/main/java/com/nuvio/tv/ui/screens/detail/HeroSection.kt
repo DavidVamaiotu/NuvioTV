@@ -71,7 +71,6 @@ import com.nuvio.tv.ui.components.SynopsisDescription
 import com.nuvio.tv.ui.theme.NuvioTheme
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Check
-import androidx.compose.material.icons.filled.Shuffle
 import androidx.compose.material.icons.filled.Visibility
 import androidx.compose.material.icons.filled.VisibilityOff
 import androidx.compose.ui.platform.LocalContext
@@ -102,8 +101,7 @@ fun HeroContentSection(
     onTrailerClick: () -> Unit = {},
     showRandomEpisodeButton: Boolean = false,
     episodeShuffle: com.nuvio.tv.domain.model.EpisodeShuffleSettings = com.nuvio.tv.domain.model.EpisodeShuffleSettings(),
-    shufflePoolEmpty: Boolean = false,
-    onToggleEpisodeShuffle: () -> Unit = {},
+    shuffleActionPending: Boolean = false,
     onRandomEpisodeClick: () -> Unit = {},
     randomEpisodeFocusRequester: FocusRequester? = null,
     hideLogoDuringTrailer: Boolean = false,
@@ -300,32 +298,14 @@ fun HeroContentSection(
                         }
 
                         if (showRandomEpisodeButton) {
-                            ActionIconButton(
-                                icon = Icons.Default.Shuffle,
-                                contentDescription = stringResource(R.string.random_episode_title),
+                            ShuffleButton(
+                                active = episodeShuffle.enabled,
+                                pending = shuffleActionPending,
                                 onClick = onRandomEpisodeClick,
-                                onLongPress = onToggleEpisodeShuffle,
-                                selected = episodeShuffle.enabled,
-                                selectedContainerColor = NuvioTheme.colors.Primary,
-                                selectedContentColor = NuvioTheme.colors.OnPrimary,
                                 focusRequester = randomEpisodeFocusRequester,
                                 onFocused = onHeroActionFocused
                             )
                         }
-                    }
-
-                    if (showRandomEpisodeButton) {
-                        Text(
-                            text = stringResource(when {
-                                shufflePoolEmpty -> R.string.shuffle_pool_empty
-                                episodeShuffle.enabled && episodeShuffle.includeWatched -> R.string.shuffle_status_all
-                                episodeShuffle.enabled -> R.string.shuffle_status_unwatched
-                                else -> R.string.shuffle_status_off
-                            }),
-                            color = NuvioTheme.colors.TextSecondary,
-                            style = MaterialTheme.typography.bodySmall,
-                            modifier = Modifier.padding(top = NuvioTheme.spacing.sm)
-                        )
                     }
 
                     Spacer(modifier = Modifier.height(NuvioTheme.spacing.lg))
