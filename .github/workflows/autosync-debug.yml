@@ -1,17 +1,37 @@
-name: Build AutoSync Debug APK
+name: AutoSync CI
 
 on:
   push:
     branches:
       - subtitle-autosync
+    paths:
+      - "app/**"
+      - "nuvio-exoplayer-engine/**"
+      - "ffmpeg-decoder-downmix/**"
+      - "build.gradle.kts"
+      - "settings.gradle.kts"
+      - "gradle/**"
+      - "gradle.properties"
+      - ".github/workflows/autosync-debug.yml"
+
   workflow_dispatch:
+    inputs:
+      build_apk:
+        description: "Build installable APK"
+        required: true
+        type: boolean
+        default: true
 
 permissions:
   contents: read
 
+concurrency:
+  group: autosync-ci-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   build:
-    name: Build fullDebug APK
+    name: AutoSync build
     runs-on: ubuntu-latest
 
     steps:
@@ -23,41 +43,61 @@ jobs:
         with:
           distribution: temurin
           java-version: "17"
-          cache: gradle
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
 
       - name: Prepare local properties
         run: |
           touch local.properties
           touch local.dev.properties
 
-      - name: Prepare CI signing config
+      - name: Configure persistent AutoSync signing
+        env:
+          KEYSTORE_BASE64: ${{ secrets.AUTOSYNC_KEYSTORE_BASE64 }}
+          STORE_PASSWORD: ${{ secrets.AUTOSYNC_STORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.AUTOSYNC_KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.AUTOSYNC_KEY_PASSWORD }}
         run: |
-          keytool -genkeypair \
-            -v \
-            -keystore "$RUNNER_TEMP/ci-debug.jks" \
-            -storepass android \
-            -alias androiddebugkey \
-            -keypass android \
-            -dname "CN=Android Debug,O=Android,C=US" \
-            -keyalg RSA \
-            -keysize 2048 \
-            -validity 10000
+          set -e
+
+          KEYSTORE_PATH="$RUNNER_TEMP/autosync-release.jks"
+
+          printf '%s' "$KEYSTORE_BASE64" | base64 --decode > "$KEYSTORE_PATH"
+
+          keytool -list \
+            -keystore "$KEYSTORE_PATH" \
+            -storepass "$STORE_PASSWORD" \
+            -alias "$KEY_ALIAS" \
+            >/dev/null
 
           {
-            echo "NUVIO_RELEASE_STORE_FILE=$RUNNER_TEMP/ci-debug.jks"
-            echo "NUVIO_RELEASE_KEY_ALIAS=androiddebugkey"
-            echo "NUVIO_RELEASE_KEY_PASSWORD=android"
-            echo "NUVIO_RELEASE_STORE_PASSWORD=android"
+            echo "NUVIO_RELEASE_STORE_FILE=$KEYSTORE_PATH"
+            echo "NUVIO_RELEASE_STORE_PASSWORD=$STORE_PASSWORD"
+            echo "NUVIO_RELEASE_KEY_ALIAS=$KEY_ALIAS"
+            echo "NUVIO_RELEASE_KEY_PASSWORD=$KEY_PASSWORD"
           } >> "$GITHUB_ENV"
 
-      - name: Build AutoSync debug APK
+      - name: Fast Kotlin compile check
         run: |
-          ./gradlew :app:assembleFullDebug --stacktrace
+          ./gradlew \
+            :app:compileFullDebugKotlin \
+            --build-cache \
+            --stacktrace
 
-      - name: Upload APK
+      - name: Build installable APK
+        if: github.event_name == 'workflow_dispatch' && inputs.build_apk
+        run: |
+          ./gradlew \
+            :app:assembleFullDebug \
+            --build-cache \
+            --stacktrace
+
+      - name: Upload universal APK
+        if: github.event_name == 'workflow_dispatch' && inputs.build_apk
         uses: actions/upload-artifact@v4
         with:
           name: NuvioTV-AutoSync-debug
-          path: app/build/outputs/apk/full/debug/*.apk
+          path: app/build/outputs/apk/full/debug/app-full-universal-debug.apk
           if-no-files-found: error
           retention-days: 7
