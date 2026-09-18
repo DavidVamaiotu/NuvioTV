@@ -5,15 +5,14 @@ import android.os.Looper
 import android.util.Log
 import android.widget.Toast
 import com.nuvio.tv.domain.model.Subtitle
+import com.nuvio.tv.ui.screens.player.autosync.AutoSyncDebugLog
+import com.nuvio.tv.ui.screens.player.autosync.AutoSyncPreferences
 import com.nuvio.tv.ui.screens.player.autosync.AutomaticSubtitleSync
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.launch
 import kotlin.math.roundToInt
 
-/**
- * Thin bridge between the isolated AutoSync matcher and NuvioTV's existing player/subtitle code.
- */
-private const val AUTOMATIC_SUBTITLE_SYNC_ENABLED = true
+/** Thin bridge between the isolated AutoSync feature and NuvioTV's existing subtitle/player APIs. */
 private val autoSyncToastHandler = Handler(Looper.getMainLooper())
 
 private fun PlayerRuntimeController.showAutoSyncToast(
@@ -28,7 +27,8 @@ private fun PlayerRuntimeController.showAutoSyncToast(
 internal fun PlayerRuntimeController.maybeRunAutomaticSubtitleSync(
     selectedSubtitle: Subtitle,
 ) {
-    if (!AUTOMATIC_SUBTITLE_SYNC_ENABLED) return
+    AutoSyncPreferences.ensureLoaded(context)
+    if (!AutoSyncPreferences.isEnabled(context)) return
     if (selectedSubtitle.lang.isBlank()) return
     if (!currentStreamUrl.startsWith("http://", ignoreCase = true) &&
         !currentStreamUrl.startsWith("https://", ignoreCase = true)
@@ -45,12 +45,13 @@ internal fun PlayerRuntimeController.maybeRunAutomaticSubtitleSync(
         .distinctBy(::addonSubtitleKey)
 
     automaticSubtitleSyncJob = scope.launch {
+        AutoSyncDebugLog.setEnabled(AutoSyncPreferences.isDebugLogsEnabled(context))
         try {
             Log.d(
                 PlayerRuntimeController.TAG,
                 "AUTO_SYNC_TV start lang=${selectedSubtitle.lang} candidates=${candidatesAtStart.size}",
             )
-            showAutoSyncToast("Auto Sync: waiting for embedded subtitles…")
+            showAutoSyncToast("Auto Sync: checking embedded subtitles…")
 
             val recommendation = AutomaticSubtitleSync.findBestSubtitleRecommendation(
                 sourceUrl = sourceUrlAtStart,
@@ -59,9 +60,9 @@ internal fun PlayerRuntimeController.maybeRunAutomaticSubtitleSync(
                 candidates = candidatesAtStart,
                 subtitleBodyLoader = { subtitle ->
                     downloadSubtitleBody(
-                        url = subtitle.url,
-                        languageHint = subtitle.lang,
-                        headers = subtitle.headers,
+                        subtitle.url,
+                        subtitle.lang,
+                        subtitle.headers,
                     )
                 },
                 onReferenceReady = {
@@ -69,6 +70,7 @@ internal fun PlayerRuntimeController.maybeRunAutomaticSubtitleSync(
                 },
             ) ?: run {
                 Log.d(PlayerRuntimeController.TAG, "AUTO_SYNC_TV no reliable match")
+                AutoSyncDebugLog.finishAndCopy(context, "no reliable match")
                 showAutoSyncToast(
                     "Auto Sync: couldn't find a reliable subtitle match",
                     Toast.LENGTH_LONG,
@@ -76,7 +78,10 @@ internal fun PlayerRuntimeController.maybeRunAutomaticSubtitleSync(
                 return@launch
             }
 
-            if (currentStreamUrl != sourceUrlAtStart) return@launch
+            if (currentStreamUrl != sourceUrlAtStart) {
+                AutoSyncDebugLog.finishAndCopy(context, "discarded: source changed")
+                return@launch
+            }
 
             val activeAddon = _uiState.value.selectedAddonSubtitle
             if (
@@ -84,8 +89,8 @@ internal fun PlayerRuntimeController.maybeRunAutomaticSubtitleSync(
                 addonSubtitleKey(activeAddon) != selectedKey &&
                 addonSubtitleKey(activeAddon) != addonSubtitleKey(recommendation.subtitle)
             ) {
-                // The user or another selection path changed subtitle while matching was running.
                 Log.d(PlayerRuntimeController.TAG, "AUTO_SYNC_TV discarded: subtitle changed")
+                AutoSyncDebugLog.finishAndCopy(context, "discarded: subtitle changed")
                 return@launch
             }
 
@@ -124,10 +129,17 @@ internal fun PlayerRuntimeController.maybeRunAutomaticSubtitleSync(
                     "correction=${correctionMs}ms score=${"%.4f".format(recommendation.score)} " +
                     "matches=${recommendation.matchedCues} reference=${recommendation.referenceKey}",
             )
+            AutoSyncDebugLog.finishAndCopy(
+                context,
+                "applied ${correctionMs}ms to ${recommendation.subtitle.id}",
+            )
         } catch (cancel: CancellationException) {
+            AutoSyncDebugLog.finishAndCopy(context, "cancelled")
             throw cancel
         } catch (error: Throwable) {
             Log.w(PlayerRuntimeController.TAG, "AUTO_SYNC_TV failed", error)
+            AutoSyncDebugLog.error(error) { "bridge failed" }
+            AutoSyncDebugLog.finishAndCopy(context, "failed")
             showAutoSyncToast("Auto Sync: failed", Toast.LENGTH_LONG)
         }
     }
