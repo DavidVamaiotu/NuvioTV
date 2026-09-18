@@ -1,6 +1,9 @@
 package com.nuvio.tv.ui.screens.player
 
+import android.os.Handler
+import android.os.Looper
 import android.util.Log
+import android.widget.Toast
 import com.nuvio.tv.domain.model.Subtitle
 import com.nuvio.tv.ui.screens.player.autosync.AutomaticSubtitleSync
 import kotlinx.coroutines.CancellationException
@@ -11,6 +14,16 @@ import kotlin.math.roundToInt
  * Thin bridge between the isolated AutoSync matcher and NuvioTV's existing player/subtitle code.
  */
 private const val AUTOMATIC_SUBTITLE_SYNC_ENABLED = true
+private val autoSyncToastHandler = Handler(Looper.getMainLooper())
+
+private fun PlayerRuntimeController.showAutoSyncToast(
+    message: String,
+    duration: Int = Toast.LENGTH_SHORT,
+) {
+    autoSyncToastHandler.post {
+        Toast.makeText(context, message, duration).show()
+    }
+}
 
 internal fun PlayerRuntimeController.maybeRunAutomaticSubtitleSync(
     selectedSubtitle: Subtitle,
@@ -37,6 +50,7 @@ internal fun PlayerRuntimeController.maybeRunAutomaticSubtitleSync(
                 PlayerRuntimeController.TAG,
                 "AUTO_SYNC_TV start lang=${selectedSubtitle.lang} candidates=${candidatesAtStart.size}",
             )
+            showAutoSyncToast("Auto Sync: waiting for embedded subtitles…")
 
             val recommendation = AutomaticSubtitleSync.findBestSubtitleRecommendation(
                 sourceUrl = sourceUrlAtStart,
@@ -50,8 +64,15 @@ internal fun PlayerRuntimeController.maybeRunAutomaticSubtitleSync(
                         headers = subtitle.headers,
                     )
                 },
+                onReferenceReady = {
+                    showAutoSyncToast("Auto Sync: comparing same-language subtitles…")
+                },
             ) ?: run {
                 Log.d(PlayerRuntimeController.TAG, "AUTO_SYNC_TV no reliable match")
+                showAutoSyncToast(
+                    "Auto Sync: couldn't find a reliable subtitle match",
+                    Toast.LENGTH_LONG,
+                )
                 return@launch
             }
 
@@ -84,6 +105,19 @@ internal fun PlayerRuntimeController.maybeRunAutomaticSubtitleSync(
                 showOverlay = false,
             )
 
+            val subtitleListNumber = candidatesAtStart.indexOfFirst { subtitle ->
+                addonSubtitleKey(subtitle) == addonSubtitleKey(recommendation.subtitle)
+            }.takeIf { it >= 0 }?.plus(1)
+            val subtitleLabel = subtitleListNumber
+                ?.let { "#$it" }
+                ?: recommendation.subtitle.getDisplayLanguage()
+            val delayLabel = "%+.2fs".format(correctionMs / 1000.0)
+
+            showAutoSyncToast(
+                "Auto Sync: $subtitleLabel selected • $delayLabel",
+                Toast.LENGTH_LONG,
+            )
+
             Log.i(
                 PlayerRuntimeController.TAG,
                 "AUTO_SYNC_TV applied addon=${recommendation.subtitle.id} " +
@@ -94,6 +128,7 @@ internal fun PlayerRuntimeController.maybeRunAutomaticSubtitleSync(
             throw cancel
         } catch (error: Throwable) {
             Log.w(PlayerRuntimeController.TAG, "AUTO_SYNC_TV failed", error)
+            showAutoSyncToast("Auto Sync: failed", Toast.LENGTH_LONG)
         }
     }
 }
