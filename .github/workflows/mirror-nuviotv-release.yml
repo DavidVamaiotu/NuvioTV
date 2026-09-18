@@ -1,0 +1,210 @@
+name: AutoSync TV Release
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "17 */2 * * *"
+
+permissions:
+  contents: write
+
+concurrency:
+  group: autosync-tv-release
+  cancel-in-progress: false
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout AutoSync branch
+        uses: actions/checkout@v6
+        with:
+          ref: subtitle-autosync
+          fetch-depth: 0
+
+      - name: Find latest official NuvioTV release
+        id: version
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          RELEASE_JSON="$(
+            gh api repos/NuvioMedia/NuvioTV/releases \
+              --jq '[.[] | select(.draft == false)][0]'
+          )"
+
+          UPSTREAM_TAG="$(printf '%s' "$RELEASE_JSON" | jq -r '.tag_name')"
+          PRERELEASE="$(printf '%s' "$RELEASE_JSON" | jq -r '.prerelease')"
+
+          if [[ -z "$UPSTREAM_TAG" || "$UPSTREAM_TAG" == "null" ]]; then
+            echo "No official NuvioTV release found"
+            exit 1
+          fi
+
+          AUTOSYNC_TAG="${UPSTREAM_TAG}-autosync"
+
+          echo "upstream_tag=$UPSTREAM_TAG" >> "$GITHUB_OUTPUT"
+          echo "autosync_tag=$AUTOSYNC_TAG" >> "$GITHUB_OUTPUT"
+          echo "prerelease=$PRERELEASE" >> "$GITHUB_OUTPUT"
+
+          if gh release view "$AUTOSYNC_TAG" \
+              --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo "already_exists=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "already_exists=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Nothing new
+        if: steps.version.outputs.already_exists == 'true'
+        run: |
+          echo "${{ steps.version.outputs.autosync_tag }} already exists."
+
+      - name: Configure Git
+        if: steps.version.outputs.already_exists == 'false'
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email \
+            "41898282+github-actions[bot]@users.noreply.github.com"
+
+      - name: Fetch official NuvioTV release
+        if: steps.version.outputs.already_exists == 'false'
+        env:
+          UPSTREAM_TAG: ${{ steps.version.outputs.upstream_tag }}
+        run: |
+          git remote remove upstream 2>/dev/null || true
+          git remote add upstream https://github.com/NuvioMedia/NuvioTV.git
+
+          git fetch upstream \
+            "refs/tags/$UPSTREAM_TAG:refs/tags/nuvio-$UPSTREAM_TAG"
+
+      - name: Merge official release
+        if: steps.version.outputs.already_exists == 'false'
+        env:
+          UPSTREAM_TAG: ${{ steps.version.outputs.upstream_tag }}
+        run: |
+          git merge --no-edit "refs/tags/nuvio-$UPSTREAM_TAG"
+
+      - name: Set up Java
+        if: steps.version.outputs.already_exists == 'false'
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Set up Gradle
+        if: steps.version.outputs.already_exists == 'false'
+        uses: gradle/actions/setup-gradle@v6
+
+      - name: Configure Nuvio services
+        if: steps.version.outputs.already_exists == 'false'
+        env:
+          SUPABASE_URL: ${{ secrets.NUVIO_SUPABASE_URL }}
+          SUPABASE_KEY: ${{ secrets.NUVIO_SUPABASE_ANON_KEY }}
+          SUPABASE_FALLBACK: ${{ secrets.NUVIO_SUPABASE_FALLBACK_URL }}
+        run: |
+          set -e
+
+          test -n "$SUPABASE_URL"
+          test -n "$SUPABASE_KEY"
+
+          cat > local.properties <<EOF2
+          NUVIO_SUPABASE_URL=$SUPABASE_URL
+          NUVIO_SUPABASE_ANON_KEY=$SUPABASE_KEY
+          NUVIO_SUPABASE_FALLBACK_URL=$SUPABASE_FALLBACK
+
+          TV_LOGIN_WEB_BASE_URL=https://nuvio.tv/tv-login
+          DEVICE_LOGIN_WEB_BASE_URL=https://nuvio.tv/link
+
+          AVATAR_PUBLIC_BASE_URL=${SUPABASE_URL%/}/storage/v1/object/public/avatars
+
+          NUVIO_UPDATE_GITHUB_OWNER=DavidVamaiotu
+          NUVIO_UPDATE_GITHUB_REPO=NuvioTV
+          AUTOSYNC_FORK=true
+
+          SIMKL_CLIENT_ID=a0b848cdb58e2e743c8efbce94edc7ca5124cc66f6f793bb91ee1f0470948096
+          SIMKL_APP_NAME=nuvio
+
+          INTRODB_API_URL=https://api.introdb.app/
+          IMDB_RATINGS_API_BASE_URL=https://seriesgraph.com/
+          IMDB_TAPFRAME_API_BASE_URL=https://imdb.tapframe.space/
+          EOF2
+
+          cp local.properties local.dev.properties
+
+      - name: Configure persistent signing
+        if: steps.version.outputs.already_exists == 'false'
+        env:
+          KEYSTORE_BASE64: ${{ secrets.AUTOSYNC_KEYSTORE_BASE64 }}
+          STORE_PASSWORD: ${{ secrets.AUTOSYNC_STORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.AUTOSYNC_KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.AUTOSYNC_KEY_PASSWORD }}
+        run: |
+          set -e
+
+          KEYSTORE_PATH="$RUNNER_TEMP/autosync-release.jks"
+
+          printf '%s' "$KEYSTORE_BASE64" |
+            base64 --decode > "$KEYSTORE_PATH"
+
+          keytool -list \
+            -keystore "$KEYSTORE_PATH" \
+            -storepass "$STORE_PASSWORD" \
+            -alias "$KEY_ALIAS" >/dev/null
+
+          {
+            echo "NUVIO_RELEASE_STORE_FILE=$KEYSTORE_PATH"
+            echo "NUVIO_RELEASE_STORE_PASSWORD=$STORE_PASSWORD"
+            echo "NUVIO_RELEASE_KEY_ALIAS=$KEY_ALIAS"
+            echo "NUVIO_RELEASE_KEY_PASSWORD=$KEY_PASSWORD"
+          } >> "$GITHUB_ENV"
+
+      - name: Test updater and build AutoSync APK
+        if: steps.version.outputs.already_exists == 'false'
+        run: |
+          ./gradlew \
+            :app:testFullDebugUnitTest \
+            --tests 'com.nuvio.tv.updater.*' \
+            :app:assembleFullDebug \
+            --build-cache \
+            --stacktrace
+
+      - name: Prepare APK
+        if: steps.version.outputs.already_exists == 'false'
+        env:
+          UPSTREAM_TAG: ${{ steps.version.outputs.upstream_tag }}
+        run: |
+          SOURCE="app/build/outputs/apk/full/debug/app-full-universal-debug.apk"
+          DEST="NuvioTV-AutoSync-${UPSTREAM_TAG}-universal.apk"
+
+          test -f "$SOURCE"
+          cp "$SOURCE" "$DEST"
+
+      - name: Push merged release
+        if: steps.version.outputs.already_exists == 'false'
+        run: |
+          git push origin HEAD:subtitle-autosync
+
+      - name: Create AutoSync release
+        if: steps.version.outputs.already_exists == 'false'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          UPSTREAM_TAG: ${{ steps.version.outputs.upstream_tag }}
+          AUTOSYNC_TAG: ${{ steps.version.outputs.autosync_tag }}
+          PRERELEASE: ${{ steps.version.outputs.prerelease }}
+        run: |
+          APK="NuvioTV-AutoSync-${UPSTREAM_TAG}-universal.apk"
+
+          ARGS=(
+            "$AUTOSYNC_TAG"
+            "$APK"
+            --repo "$GITHUB_REPOSITORY"
+            --target subtitle-autosync
+            --title "$AUTOSYNC_TAG"
+            --notes "AutoSync TV build based on official NuvioTV $UPSTREAM_TAG."
+          )
+
+          if [[ "$PRERELEASE" == "true" ]]; then
+            ARGS+=(--prerelease)
+          fi
+
+          gh release create "${ARGS[@]}"

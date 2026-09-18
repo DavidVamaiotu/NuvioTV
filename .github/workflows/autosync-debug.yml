@@ -36,21 +36,53 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Set up Java
-        uses: actions/setup-java@v4
+        uses: actions/setup-java@v5
         with:
           distribution: temurin
           java-version: "17"
 
       - name: Set up Gradle
-        uses: gradle/actions/setup-gradle@v4
+        uses: gradle/actions/setup-gradle@v6
 
-      - name: Prepare local properties
+      - name: Configure Nuvio services
+        env:
+          SUPABASE_URL: ${{ secrets.NUVIO_SUPABASE_URL }}
+          SUPABASE_KEY: ${{ secrets.NUVIO_SUPABASE_ANON_KEY }}
+          SUPABASE_FALLBACK: ${{ secrets.NUVIO_SUPABASE_FALLBACK_URL }}
         run: |
-          touch local.properties
-          touch local.dev.properties
+          set -e
+
+          if [[ -z "$SUPABASE_URL" || -z "$SUPABASE_KEY" ]]; then
+            echo "Nuvio login configuration is missing."
+            exit 1
+          fi
+
+          cat > local.properties <<EOF2
+          NUVIO_SUPABASE_URL=$SUPABASE_URL
+          NUVIO_SUPABASE_ANON_KEY=$SUPABASE_KEY
+          NUVIO_SUPABASE_FALLBACK_URL=$SUPABASE_FALLBACK
+
+          TV_LOGIN_WEB_BASE_URL=https://nuvio.tv/tv-login
+          DEVICE_LOGIN_WEB_BASE_URL=https://nuvio.tv/link
+
+          AVATAR_PUBLIC_BASE_URL=${SUPABASE_URL%/}/storage/v1/object/public/avatars
+
+          NUVIO_UPDATE_GITHUB_OWNER=DavidVamaiotu
+          NUVIO_UPDATE_GITHUB_REPO=NuvioTV
+          AUTOSYNC_FORK=true
+
+          SIMKL_CLIENT_ID=a0b848cdb58e2e743c8efbce94edc7ca5124cc66f6f793bb91ee1f0470948096
+          SIMKL_APP_NAME=nuvio
+
+          INTRODB_API_URL=https://api.introdb.app/
+          IMDB_RATINGS_API_BASE_URL=https://seriesgraph.com/
+          IMDB_TAPFRAME_API_BASE_URL=https://imdb.tapframe.space/
+          EOF2
+
+          cp local.properties local.dev.properties
 
       - name: Configure persistent AutoSync signing
         env:
@@ -63,7 +95,8 @@ jobs:
 
           KEYSTORE_PATH="$RUNNER_TEMP/autosync-release.jks"
 
-          printf '%s' "$KEYSTORE_BASE64" | base64 --decode > "$KEYSTORE_PATH"
+          printf '%s' "$KEYSTORE_BASE64" |
+            base64 --decode > "$KEYSTORE_PATH"
 
           keytool -list \
             -keystore "$KEYSTORE_PATH" \
