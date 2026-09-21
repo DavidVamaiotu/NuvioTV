@@ -51,7 +51,10 @@ jobs:
             NEEDS_SYNC=true
           fi
 
-          if [[ "$GITHUB_EVENT_NAME" == "schedule" && "$NEEDS_SYNC" != "true" ]]; then
+          if [[ "$GITHUB_EVENT_NAME" == "push" ]]; then
+            # Workflow-file pushes are maintenance-only. Do not mint a new AutoSync revision.
+            SHOULD_RELEASE=false
+          elif [[ "$GITHUB_EVENT_NAME" == "schedule" && "$NEEDS_SYNC" != "true" ]]; then
             SHOULD_RELEASE=false
           else
             SHOULD_RELEASE=true
@@ -271,6 +274,7 @@ jobs:
             ARGS+=(--prerelease)
           fi
 
+          ARGS+=(--latest=false)
           gh release create "${ARGS[@]}"
 
       - name: Create one-time updater bridge
@@ -284,3 +288,13 @@ jobs:
           set -euo pipefail
           APK="NuvioTV-AutoSync-${BRIDGE_TAG}-universal.apk"
           gh release create "$BRIDGE_TAG" "$APK" --repo "$GITHUB_REPOSITORY" --target "$(git rev-parse HEAD)" --title "$BRIDGE_TAG" --latest --notes "Compatibility bridge for existing AutoSync 1.0.0 installs. The APK itself is canonical $AUTOSYNC_TAG, based on official NuvioTV $UPSTREAM_TAG. Future AutoSync releases use upstream-version-autosync.revision."
+
+      - name: Keep legacy updater bridge latest
+        if: github.event_name == 'push' || steps.upstream.outputs.should_release == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          if gh release view "1.0.1-autosync" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            gh release edit "1.0.1-autosync" --repo "$GITHUB_REPOSITORY" --latest
+          fi
