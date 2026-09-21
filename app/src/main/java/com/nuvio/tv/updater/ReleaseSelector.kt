@@ -10,10 +10,16 @@ internal object ReleaseSelector {
 
     fun eligibleReleases(
         releases: List<GitHubReleaseDto>,
-        channel: UpdateChannel
+        channel: UpdateChannel,
+        canonicalAutoSyncOnly: Boolean = false
     ): List<GitHubReleaseDto> = releases
         .asSequence()
         .filterNot(GitHubReleaseDto::draft)
+        .filter { release ->
+            !canonicalAutoSyncOnly ||
+                VersionUtils.isCanonicalAutoSync(release.tagName) ||
+                VersionUtils.isCanonicalAutoSync(release.name)
+        }
         .mapNotNull { release ->
             val version = releaseVersion(release) ?: return@mapNotNull null
             ReleaseCandidate(
@@ -35,7 +41,9 @@ internal object ReleaseSelector {
         version: SemanticVersion
     ): Boolean = release.prerelease ||
         version.prerelease.isNotEmpty() ||
-        prereleaseNamePattern.containsMatchIn(release.name.orEmpty())
+        prereleaseNamePattern.containsMatchIn(
+            release.name.orEmpty().replace(Regex("-autosync\\.\\d+$", RegexOption.IGNORE_CASE), "")
+        )
 
     private data class ReleaseCandidate(
         val release: GitHubReleaseDto,
