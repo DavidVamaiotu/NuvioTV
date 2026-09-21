@@ -1,6 +1,6 @@
 name: AutoSync TV Release
 
-# Release trigger: AutoSync V2 toast parity
+# Release trigger: forced-reference fallback
 
 on:
   workflow_dispatch:
