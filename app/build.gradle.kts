@@ -81,6 +81,9 @@ fun truthy(value: String?): Boolean {
 
 val buildingAppBundle = gradle.startParameter.taskNames.any { it.contains("bundle", ignoreCase = true) }
 val useDebugReleaseSigning = env("CI_USE_DEBUG_SIGNING").equals("true", ignoreCase = true)
+val autoSyncFork = parseBooleanProperty(
+    resolveProperty(devProperties, localProperties, "AUTOSYNC_FORK", "false")
+)
 val useLocalFfmpegDecoder = truthy(
     providers.gradleProperty("useLocalFfmpegDecoder").orNull
         ?: env("USE_LOCAL_FFMPEG_DECODER")
@@ -169,18 +172,7 @@ android {
                 )
             )
         )
-        buildConfigField(
-            "boolean",
-            "AUTOSYNC_FORK",
-            parseBooleanProperty(
-                resolveProperty(
-                    devProperties,
-                    localProperties,
-                    "AUTOSYNC_FORK",
-                    "false"
-                )
-            ).toString()
-        )
+        buildConfigField("boolean", "AUTOSYNC_FORK", autoSyncFork.toString())
     }
 
     flavorDimensions += "distribution"
@@ -369,6 +361,17 @@ androidComponents {
     onVariants(selector().withBuildType("debug")) { variant ->
         val isPlaystore = variant.productFlavors.any { it.second == "playstore" }
         variant.applicationId.set(if (isPlaystore) "com.nuvio.appdebug" else "com.nuviodebug.com")
+    }
+
+    // AutoSync releases must keep the same package ID as existing AutoSync installs
+    // so optimized release APKs can update the former debug-based builds in place.
+    if (autoSyncFork) {
+        onVariants(selector().withBuildType("release")) { variant ->
+            val isFull = variant.productFlavors.any { it.second == "full" }
+            if (isFull) {
+                variant.applicationId.set("com.nuviodebug.com")
+            }
+        }
     }
 }
 
