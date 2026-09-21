@@ -233,27 +233,21 @@ jobs:
         if: steps.upstream.outputs.should_release == 'true'
         run: ./gradlew :app:testFullDebugUnitTest --tests 'com.nuvio.tv.updater.*' :app:assembleFullDebug --build-cache --stacktrace
 
-      - name: Prepare ABI-specific APKs
+      - name: Prepare APKs
         if: steps.upstream.outputs.should_release == 'true'
         env:
           AUTOSYNC_TAG: ${{ steps.version.outputs.tag }}
           BRIDGE_TAG: ${{ steps.version.outputs.bridge_tag }}
         run: |
           set -euo pipefail
+          SOURCE="app/build/outputs/apk/full/debug/app-full-universal-debug.apk"
+          CANONICAL_APK="NuvioTV-AutoSync-${AUTOSYNC_TAG}-universal.apk"
+          test -f "$SOURCE"
+          cp "$SOURCE" "$CANONICAL_APK"
 
-          OUTPUT_DIR="app/build/outputs/apk/full/debug"
-          ABIS=("arm64-v8a" "armeabi-v7a" "x86_64" "x86" "universal")
-
-          for ABI in "${ABIS[@]}"; do
-            SOURCE="$OUTPUT_DIR/app-full-${ABI}-debug.apk"
-            test -f "$SOURCE"
-
-            cp "$SOURCE" "NuvioTV-AutoSync-${AUTOSYNC_TAG}-${ABI}.apk"
-
-            if [[ -n "$BRIDGE_TAG" ]]; then
-              cp "$SOURCE" "NuvioTV-AutoSync-${BRIDGE_TAG}-${ABI}.apk"
-            fi
-          done
+          if [[ -n "$BRIDGE_TAG" ]]; then
+            cp "$SOURCE" "NuvioTV-AutoSync-${BRIDGE_TAG}-universal.apk"
+          fi
 
       - name: Push merged upstream release
         if: steps.upstream.outputs.should_release == 'true' && steps.upstream.outputs.needs_sync == 'true'
@@ -268,21 +262,14 @@ jobs:
           PRERELEASE: ${{ steps.upstream.outputs.prerelease }}
         run: |
           set -euo pipefail
-
-          mapfile -t APKS < <(find . -maxdepth 1 -type f -name "NuvioTV-AutoSync-${AUTOSYNC_TAG}-*.apk" -print | sort)
-          if (( ${#APKS[@]} != 5 )); then
-            echo "Expected 5 AutoSync APKs, found ${#APKS[@]}" >&2
-            printf '%s\n' "${APKS[@]}" >&2
-            exit 1
-          fi
-
-          ARGS=("$AUTOSYNC_TAG" --repo "$GITHUB_REPOSITORY" --target "$(git rev-parse HEAD)" --title "$AUTOSYNC_TAG" --notes "AutoSync TV revision $AUTOSYNC_TAG based on official NuvioTV $UPSTREAM_TAG. Includes AutoSync V2. The updater automatically selects the APK matching the device ABI; universal is retained as a fallback.")
+          APK="NuvioTV-AutoSync-${AUTOSYNC_TAG}-universal.apk"
+          ARGS=("$AUTOSYNC_TAG" "$APK" --repo "$GITHUB_REPOSITORY" --target "$(git rev-parse HEAD)" --title "$AUTOSYNC_TAG" --notes "AutoSync TV revision $AUTOSYNC_TAG based on official NuvioTV $UPSTREAM_TAG. Includes AutoSync V2.")
 
           if [[ "$PRERELEASE" == "true" ]]; then
             ARGS+=(--prerelease)
           fi
 
-          gh release create "${ARGS[@]}" "${APKS[@]}"
+          gh release create "${ARGS[@]}"
 
       - name: Create one-time updater bridge
         if: steps.upstream.outputs.should_release == 'true' && steps.version.outputs.bridge_tag != ''
@@ -293,11 +280,5 @@ jobs:
           BRIDGE_TAG: ${{ steps.version.outputs.bridge_tag }}
         run: |
           set -euo pipefail
-
-          mapfile -t APKS < <(find . -maxdepth 1 -type f -name "NuvioTV-AutoSync-${BRIDGE_TAG}-*.apk" -print | sort)
-          if (( ${#APKS[@]} != 5 )); then
-            echo "Expected 5 bridge APKs, found ${#APKS[@]}" >&2
-            exit 1
-          fi
-
-          gh release create "$BRIDGE_TAG" "${APKS[@]}" --repo "$GITHUB_REPOSITORY" --target "$(git rev-parse HEAD)" --title "$BRIDGE_TAG" --latest --notes "Compatibility bridge for existing AutoSync 1.0.0 installs. The APK itself is canonical $AUTOSYNC_TAG, based on official NuvioTV $UPSTREAM_TAG. Future AutoSync releases use upstream-version-autosync.revision."
+          APK="NuvioTV-AutoSync-${BRIDGE_TAG}-universal.apk"
+          gh release create "$BRIDGE_TAG" "$APK" --repo "$GITHUB_REPOSITORY" --target "$(git rev-parse HEAD)" --title "$BRIDGE_TAG" --latest --notes "Compatibility bridge for existing AutoSync 1.0.0 installs. The APK itself is canonical $AUTOSYNC_TAG, based on official NuvioTV $UPSTREAM_TAG. Future AutoSync releases use upstream-version-autosync.revision."
