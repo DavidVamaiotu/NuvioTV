@@ -120,7 +120,7 @@ jobs:
             --stacktrace
 
       - name: Build installable APK
-        if: github.event_name == 'workflow_dispatch' && inputs.build_apk
+        if: github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && inputs.build_apk)
         run: |
           ./gradlew \
             :app:assembleFullDebug \
@@ -128,7 +128,7 @@ jobs:
             --stacktrace
 
       - name: Upload universal APK
-        if: github.event_name == 'workflow_dispatch' && inputs.build_apk
+        if: github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && inputs.build_apk)
         uses: actions/upload-artifact@v4
         with:
           name: NuvioTV-AutoSync-debug
