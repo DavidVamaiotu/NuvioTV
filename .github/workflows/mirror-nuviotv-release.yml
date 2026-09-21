@@ -129,8 +129,14 @@ jobs:
             fi
           fi
 
+          PREVIOUS_TAG=""
+          if (( MAX_REVISION > 0 )); then
+            PREVIOUS_TAG="${BASE_TAG}-autosync.${MAX_REVISION}"
+          fi
+
           echo "revision=$NEXT_REVISION" >> "$GITHUB_OUTPUT"
           echo "tag=$AUTOSYNC_TAG" >> "$GITHUB_OUTPUT"
+          echo "previous_tag=$PREVIOUS_TAG" >> "$GITHUB_OUTPUT"
           echo "bridge_tag=$BRIDGE_TAG" >> "$GITHUB_OUTPUT"
 
       - name: Set up Java
@@ -238,7 +244,7 @@ jobs:
 
       - name: Test updater and build AutoSync APK
         if: steps.upstream.outputs.should_release == 'true'
-        run: ./gradlew :app:testFullDebugUnitTest --tests 'com.nuvio.tv.updater.*' :app:assembleFullDebug --build-cache --stacktrace
+        run: ./gradlew :app:testFullReleaseUnitTest --tests 'com.nuvio.tv.updater.*' :app:assembleFullRelease --build-cache --stacktrace
 
       - name: Prepare APKs
         if: steps.upstream.outputs.should_release == 'true'
@@ -247,18 +253,63 @@ jobs:
           BRIDGE_TAG: ${{ steps.version.outputs.bridge_tag }}
         run: |
           set -euo pipefail
-          SOURCE_DIR="app/build/outputs/apk/full/debug"
+          SOURCE_DIR="app/build/outputs/apk/full/release"
 
           for ABI in universal arm64-v8a armeabi-v7a x86_64 x86; do
-            SOURCE="$SOURCE_DIR/app-full-${ABI}-debug.apk"
+            SOURCE="$SOURCE_DIR/app-full-${ABI}-release.apk"
             TARGET="NuvioTV-AutoSync-${AUTOSYNC_TAG}-${ABI}.apk"
             test -f "$SOURCE"
             cp "$SOURCE" "$TARGET"
           done
 
           if [[ -n "$BRIDGE_TAG" ]]; then
-            cp "$SOURCE_DIR/app-full-universal-debug.apk" "NuvioTV-AutoSync-${BRIDGE_TAG}-universal.apk"
+            cp "$SOURCE_DIR/app-full-universal-release.apk" "NuvioTV-AutoSync-${BRIDGE_TAG}-universal.apk"
           fi
+
+      - name: Verify in-place update compatibility
+        if: steps.upstream.outputs.should_release == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          AUTOSYNC_TAG: ${{ steps.version.outputs.tag }}
+          PREVIOUS_TAG: ${{ steps.version.outputs.previous_tag }}
+        run: |
+          set -euo pipefail
+
+          NEW_APK="NuvioTV-AutoSync-${AUTOSYNC_TAG}-arm64-v8a.apk"
+          AAPT="$(find "$ANDROID_HOME/build-tools" -type f -name aapt | sort -V | tail -n 1)"
+          APKSIGNER="$(find "$ANDROID_HOME/build-tools" -type f -name apksigner | sort -V | tail -n 1)"
+          test -x "$AAPT"
+          test -x "$APKSIGNER"
+
+          read_badging() {
+            "$AAPT" dump badging "$1" | head -n 1
+          }
+
+          NEW_BADGING="$(read_badging "$NEW_APK")"
+          NEW_PACKAGE="$(printf '%s\n' "$NEW_BADGING" | sed -n "s/.*name='\([^']*\)'.*/\1/p")"
+          NEW_VERSION="$(printf '%s\n' "$NEW_BADGING" | sed -n "s/.*versionCode='\([^']*\)'.*/\1/p")"
+          test "$NEW_PACKAGE" = "com.nuviodebug.com"
+
+          if [[ -n "$PREVIOUS_TAG" ]]; then
+            mkdir -p previous
+            gh release download "$PREVIOUS_TAG" --repo "$GITHUB_REPOSITORY" --pattern '*arm64-v8a.apk' --dir previous
+            PREVIOUS_APK="$(find previous -maxdepth 1 -type f -name '*.apk' | head -n 1)"
+            test -n "$PREVIOUS_APK"
+
+            OLD_BADGING="$(read_badging "$PREVIOUS_APK")"
+            OLD_PACKAGE="$(printf '%s\n' "$OLD_BADGING" | sed -n "s/.*name='\([^']*\)'.*/\1/p")"
+            OLD_VERSION="$(printf '%s\n' "$OLD_BADGING" | sed -n "s/.*versionCode='\([^']*\)'.*/\1/p")"
+
+            NEW_CERT="$("$APKSIGNER" verify --print-certs "$NEW_APK" | sed -n 's/^Signer #1 certificate SHA-256 digest: //p' | head -n 1)"
+            OLD_CERT="$("$APKSIGNER" verify --print-certs "$PREVIOUS_APK" | sed -n 's/^Signer #1 certificate SHA-256 digest: //p' | head -n 1)"
+
+            test "$OLD_PACKAGE" = "$NEW_PACKAGE"
+            test -n "$NEW_CERT"
+            test "$OLD_CERT" = "$NEW_CERT"
+            (( NEW_VERSION > OLD_VERSION ))
+          fi
+
+          echo "Verified update identity: package=$NEW_PACKAGE versionCode=$NEW_VERSION"
 
       - name: Push merged upstream release
         if: steps.upstream.outputs.should_release == 'true' && steps.upstream.outputs.needs_sync == 'true'
