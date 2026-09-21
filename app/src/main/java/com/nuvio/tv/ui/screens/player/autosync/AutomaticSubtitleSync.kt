@@ -570,19 +570,19 @@ internal object AutomaticSubtitleSync {
                         }
                     }
                 }
-                val hasNonForcedIndexedTrack =
-                    profiles.any { profile -> !isForcedReferenceTrack(profile.track) }
                 val eligibleProfiles = profiles.filter { profile ->
                     profile.fullDialogueCandidate &&
                         profile.cueCount >= MIN_FULL_DIALOGUE_CUES &&
                         profile.spanMs >= MIN_INDEXED_REFERENCE_SPAN_MS
                 }
-                val selectedProfiles = if (hasNonForcedIndexedTrack) {
+                val preferredProfiles =
                     eligibleProfiles.filter { profile -> profile.fullDialogue }
+                val selectedProfiles = if (preferredProfiles.isNotEmpty()) {
+                    preferredProfiles
                 } else {
                     eligibleProfiles.filter { profile -> isForcedReferenceTrack(profile.track) }
                 }
-                if (!hasNonForcedIndexedTrack && selectedProfiles.isNotEmpty()) {
+                if (preferredProfiles.isEmpty() && selectedProfiles.isNotEmpty()) {
                     AutoSyncDebugLog.info {
                         "using forced-only indexed reference fallback tracks=${selectedProfiles.size}"
                     }
@@ -1743,7 +1743,6 @@ internal object AutomaticSubtitleSync {
         val targetSpan = referenceSpanMs(target).coerceAtLeast(1L)
         val started = SystemClock.elapsedRealtime()
         var lastSignature = ""
-        var sawNonForcedTrack = false
         var forcedFallback: List<ReferenceProfile> = emptyList()
 
         while (true) {
@@ -1753,9 +1752,6 @@ internal object AutomaticSubtitleSync {
                 .map { track -> track.copy(cues = deduplicateReferenceCues(track.cues)) }
 
             val profiles = prepared.map(::buildReferenceProfile)
-            if (profiles.any { profile -> !isForcedReferenceTrack(profile.track) }) {
-                sawNonForcedTrack = true
-            }
             val eligibleProfiles = profiles.filter { profile ->
                 profile.fullDialogueCandidate &&
                     profile.cueCount >= MIN_LIVE_REFERENCE_CUES &&
@@ -1764,13 +1760,9 @@ internal object AutomaticSubtitleSync {
             val ready = orderReferenceProfiles(
                 eligibleProfiles.filter { profile -> profile.fullDialogue },
             )
-            forcedFallback = if (sawNonForcedTrack) {
-                emptyList()
-            } else {
-                orderReferenceProfiles(
-                    eligibleProfiles.filter { profile -> isForcedReferenceTrack(profile.track) },
-                )
-            }
+            forcedFallback = orderReferenceProfiles(
+                eligibleProfiles.filter { profile -> isForcedReferenceTrack(profile.track) },
+            )
 
             val signature = prepared.joinToString("|") { track ->
                 "${track.key}:g${track.generation}:${track.cues.size}:" +
@@ -1795,7 +1787,7 @@ internal object AutomaticSubtitleSync {
             delay(minOf(LIVE_REFERENCE_POLL_MS, waitMs - elapsedMs))
         }
 
-        if (!sawNonForcedTrack && forcedFallback.isNotEmpty()) {
+        if (forcedFallback.isNotEmpty()) {
             AutoSyncDebugLog.info {
                 "using forced-only Media3 reference fallback tracks=${forcedFallback.size}"
             }
