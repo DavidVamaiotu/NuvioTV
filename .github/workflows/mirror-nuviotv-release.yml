@@ -1,5 +1,7 @@
 name: AutoSync TV Release
 
+# Manual republish trigger: AutoSync V2
+
 on:
   workflow_dispatch:
   push:
