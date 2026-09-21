@@ -19,6 +19,10 @@ jobs:
       NUVIO_SUPABASE_ANON_KEY: ${{ secrets.NUVIO_SUPABASE_ANON_KEY }}
       NUVIO_SUPABASE_FALLBACK_URL: ${{ secrets.NUVIO_SUPABASE_FALLBACK_URL }}
       TMDB_API_KEY: ${{ secrets.TMDB_API_KEY }}
+      KEYSTORE_BASE64: ${{ secrets.AUTOSYNC_KEYSTORE_BASE64 }}
+      STORE_PASSWORD: ${{ secrets.AUTOSYNC_STORE_PASSWORD }}
+      KEY_ALIAS: ${{ secrets.AUTOSYNC_KEY_ALIAS }}
+      KEY_PASSWORD: ${{ secrets.AUTOSYNC_KEY_PASSWORD }}
     steps:
       - uses: actions/checkout@v6
 
@@ -46,6 +50,17 @@ jobs:
           IMDB_TAPFRAME_API_BASE_URL=https://imdb.tapframe.space/
           EOF
           cp local.properties local.dev.properties
+
+      - name: Configure signing
+        run: |
+          KEYSTORE_PATH="$RUNNER_TEMP/autosync-size-test.jks"
+          printf '%s' "$KEYSTORE_BASE64" | base64 --decode > "$KEYSTORE_PATH"
+          {
+            echo "NUVIO_RELEASE_STORE_FILE=$KEYSTORE_PATH"
+            echo "NUVIO_RELEASE_STORE_PASSWORD=$STORE_PASSWORD"
+            echo "NUVIO_RELEASE_KEY_ALIAS=$KEY_ALIAS"
+            echo "NUVIO_RELEASE_KEY_PASSWORD=$KEY_PASSWORD"
+          } >> "$GITHUB_ENV"
 
       - name: Build debug and release APKs
         run: ./gradlew :app:assembleFullDebug :app:assembleFullRelease --build-cache --stacktrace
