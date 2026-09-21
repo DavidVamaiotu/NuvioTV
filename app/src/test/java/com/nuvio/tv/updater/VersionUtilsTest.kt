@@ -39,4 +39,34 @@ class VersionUtilsTest {
     fun `current beta naming is recognized as prerelease`() {
         assertTrue(VersionUtils.isPrerelease("0.8.12-beta"))
     }
+
+    @Test
+    fun `autosync revision is newer than exact upstream version`() {
+        assertTrue(VersionUtils.isRemoteNewer("1.0.0-autosync.1", "1.0.0"))
+    }
+
+    @Test
+    fun `autosync revisions increment independently`() {
+        assertTrue(VersionUtils.isRemoteNewer("1.0.0-autosync.10", "1.0.0-autosync.9"))
+        assertFalse(VersionUtils.isRemoteNewer("1.0.0-autosync.2", "1.0.0-autosync.2"))
+    }
+
+    @Test
+    fun `new upstream version outranks previous autosync revision`() {
+        assertTrue(VersionUtils.isRemoteNewer("1.0.1-autosync.1", "1.0.0-autosync.99"))
+    }
+
+    @Test
+    fun `stable autosync revision is not treated as prerelease`() {
+        assertFalse(VersionUtils.isPrerelease("1.0.0-autosync.2"))
+        assertTrue(VersionUtils.isPrerelease("1.0.1-beta-autosync.2"))
+    }
+
+    @Test
+    fun `canonical autosync tags require numeric revision`() {
+        assertTrue(VersionUtils.isCanonicalAutoSync("1.0.0-autosync.1"))
+        assertTrue(VersionUtils.isCanonicalAutoSync("0.9.5-beta-autosync.12"))
+        assertFalse(VersionUtils.isCanonicalAutoSync("1.0.1-autosync"))
+        assertFalse(VersionUtils.isCanonicalAutoSync("1.0.1"))
+    }
 }
