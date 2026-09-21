@@ -52,7 +52,7 @@ internal fun PlayerRuntimeController.maybeRunAutomaticSubtitleSync(
     val player = _exoPlayer ?: return
     val useLibass = requestedUseLibassByUser || activePlayerUsesLibass
 
-    showAutoSyncToast("AutoSync v2 in progress...")
+    showAutoSyncToast("AutoSync V2 in progress...")
 
     if (!canAttachAddonSubtitleViaSidecar(selectedSubtitle)) {
         showAutoSyncToast("Auto Sync V2 failed: unsupported subtitle renderer")
