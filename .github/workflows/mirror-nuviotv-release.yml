@@ -1,5 +1,7 @@
 name: AutoSync TV Release
 
+# Release trigger: AutoSync V2 toast parity
+
 on:
   workflow_dispatch:
   push:
