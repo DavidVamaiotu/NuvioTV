@@ -288,6 +288,7 @@ jobs:
           NEW_BADGING="$(read_badging "$NEW_APK")"
           NEW_PACKAGE="$(printf '%s\n' "$NEW_BADGING" | sed -n "s/.*name='\([^']*\)'.*/\1/p")"
           NEW_VERSION="$(printf '%s\n' "$NEW_BADGING" | sed -n "s/.*versionCode='\([^']*\)'.*/\1/p")"
+          echo "New APK identity: package=$NEW_PACKAGE versionCode=$NEW_VERSION"
           test "$NEW_PACKAGE" = "com.nuviodebug.com"
 
           if [[ -n "$PREVIOUS_TAG" ]]; then
@@ -299,10 +300,12 @@ jobs:
             OLD_BADGING="$(read_badging "$PREVIOUS_APK")"
             OLD_PACKAGE="$(printf '%s\n' "$OLD_BADGING" | sed -n "s/.*name='\([^']*\)'.*/\1/p")"
             OLD_VERSION="$(printf '%s\n' "$OLD_BADGING" | sed -n "s/.*versionCode='\([^']*\)'.*/\1/p")"
+            echo "Previous APK identity: package=$OLD_PACKAGE versionCode=$OLD_VERSION"
 
             NEW_CERT="$("$APKSIGNER" verify --print-certs "$NEW_APK" | sed -n 's/^Signer #1 certificate SHA-256 digest: //p' | head -n 1)"
             OLD_CERT="$("$APKSIGNER" verify --print-certs "$PREVIOUS_APK" | sed -n 's/^Signer #1 certificate SHA-256 digest: //p' | head -n 1)"
 
+            echo "Signing certificate unchanged: $([[ "$OLD_CERT" = "$NEW_CERT" ]] && echo yes || echo no)"
             test "$OLD_PACKAGE" = "$NEW_PACKAGE"
             test -n "$NEW_CERT"
             test "$OLD_CERT" = "$NEW_CERT"
