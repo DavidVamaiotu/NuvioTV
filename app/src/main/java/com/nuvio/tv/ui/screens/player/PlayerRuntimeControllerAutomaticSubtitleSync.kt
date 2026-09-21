@@ -51,7 +51,13 @@ internal fun PlayerRuntimeController.maybeRunAutomaticSubtitleSync(
 
     val player = _exoPlayer ?: return
     val useLibass = requestedUseLibassByUser || activePlayerUsesLibass
-    if (!canAttachAddonSubtitleViaSidecar(selectedSubtitle)) return
+
+    showAutoSyncToast("AutoSync v2 in progress...")
+
+    if (!canAttachAddonSubtitleViaSidecar(selectedSubtitle)) {
+        showAutoSyncToast("Auto Sync V2 failed: unsupported subtitle renderer")
+        return
+    }
 
     automaticSubtitleSyncJob?.cancel()
 
@@ -71,7 +77,10 @@ internal fun PlayerRuntimeController.maybeRunAutomaticSubtitleSync(
             )
         },
     )
-    if (!started) return
+    if (!started) {
+        showAutoSyncToast("Auto Sync V2 failed: subtitle could not be loaded")
+        return
+    }
 
     val selectedBodyDeferred = sidecarRawBodyDeferredFor(selectedUrl)
     player.trackSelectionParameters = player.trackSelectionParameters
@@ -86,8 +95,6 @@ internal fun PlayerRuntimeController.maybeRunAutomaticSubtitleSync(
                 "AUTO_SYNC_V2 start scope=${candidateScope.name} " +
                     "lang=${selectedSubtitle.lang} candidates=${candidatesAtStart.size}",
             )
-            showAutoSyncToast("Auto Sync V2: checking embedded subtitles…")
-
             var noSubtitleTracks = false
             val resolved = AutomaticSubtitleSync.findTimelineRetime(
                 sourceKey = sourceUrlAtStart,
@@ -122,9 +129,7 @@ internal fun PlayerRuntimeController.maybeRunAutomaticSubtitleSync(
                 } else {
                     null
                 },
-                onReferenceReady = {
-                    showAutoSyncToast("Auto Sync V2: comparing subtitles…")
-                },
+                onReferenceReady = {},
                 onNoSubtitleTracks = { noSubtitleTracks = true },
             )
 
@@ -138,8 +143,7 @@ internal fun PlayerRuntimeController.maybeRunAutomaticSubtitleSync(
                 )
                 showAutoSyncToast(
                     if (noSubtitleTracks) "No subtitles in tracks"
-                    else "Auto Sync V2: no reliable match",
-                    Toast.LENGTH_LONG,
+                    else "Auto Sync V2 failed: no reliable match",
                 )
                 return@launch
             }
@@ -197,7 +201,7 @@ internal fun PlayerRuntimeController.maybeRunAutomaticSubtitleSync(
                     context,
                     "REJECT V2 - sidecar changed or apply failed",
                 )
-                showAutoSyncToast("Auto Sync V2: could not apply sync", Toast.LENGTH_LONG)
+                showAutoSyncToast("Auto Sync V2 failed: could not apply sync")
                 return@launch
             }
 
@@ -230,7 +234,6 @@ internal fun PlayerRuntimeController.maybeRunAutomaticSubtitleSync(
                     scale = timeline.alignmentScale,
                     interceptMs = timeline.alignmentInterceptMs,
                 ),
-                Toast.LENGTH_LONG,
             )
         } catch (cancel: CancellationException) {
             throw cancel
@@ -241,7 +244,7 @@ internal fun PlayerRuntimeController.maybeRunAutomaticSubtitleSync(
             if (activeSidecarSubtitleKey == null) {
                 startSidecarAddonSubtitle(selectedSubtitle)
             }
-            showAutoSyncToast("Auto Sync V2: failed", Toast.LENGTH_LONG)
+            showAutoSyncToast("Auto Sync V2 failed")
         }
     }
 }
