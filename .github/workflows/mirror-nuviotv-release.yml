@@ -2,6 +2,11 @@ name: AutoSync TV Release
 
 on:
   workflow_dispatch:
+  push:
+    branches:
+      - subtitle-autosync
+    paths:
+      - ".github/workflows/mirror-nuviotv-release.yml"
   schedule:
     - cron: "17 */2 * * *"
 
@@ -50,17 +55,23 @@ jobs:
           if gh release view "$AUTOSYNC_TAG" \
               --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
             echo "already_exists=true" >> "$GITHUB_OUTPUT"
+            if [[ "$GITHUB_EVENT_NAME" == "push" ]]; then
+              echo "republish=true" >> "$GITHUB_OUTPUT"
+            else
+              echo "republish=false" >> "$GITHUB_OUTPUT"
+            fi
           else
             echo "already_exists=false" >> "$GITHUB_OUTPUT"
+            echo "republish=false" >> "$GITHUB_OUTPUT"
           fi
 
       - name: Nothing new
-        if: steps.version.outputs.already_exists == 'true'
+        if: steps.version.outputs.already_exists == 'true' && steps.version.outputs.republish != 'true'
         run: |
           echo "${{ steps.version.outputs.autosync_tag }} already exists."
 
       - name: Configure Git
-        if: steps.version.outputs.already_exists == 'false'
+        if: steps.version.outputs.already_exists == 'false' || steps.version.outputs.republish == 'true'
         run: |
           git config user.name "github-actions[bot]"
           git config user.email \
@@ -93,18 +104,18 @@ jobs:
           fi
 
       - name: Set up Java
-        if: steps.version.outputs.already_exists == 'false'
+        if: steps.version.outputs.already_exists == 'false' || steps.version.outputs.republish == 'true'
         uses: actions/setup-java@v5
         with:
           distribution: temurin
           java-version: "17"
 
       - name: Set up Gradle
-        if: steps.version.outputs.already_exists == 'false'
+        if: steps.version.outputs.already_exists == 'false' || steps.version.outputs.republish == 'true'
         uses: gradle/actions/setup-gradle@v6
 
       - name: Configure Nuvio services
-        if: steps.version.outputs.already_exists == 'false'
+        if: steps.version.outputs.already_exists == 'false' || steps.version.outputs.republish == 'true'
         env:
           SUPABASE_URL: ${{ secrets.NUVIO_SUPABASE_URL }}
           SUPABASE_KEY: ${{ secrets.NUVIO_SUPABASE_ANON_KEY }}
@@ -140,7 +151,7 @@ jobs:
           cp local.properties local.dev.properties
 
       - name: Configure persistent signing
-        if: steps.version.outputs.already_exists == 'false'
+        if: steps.version.outputs.already_exists == 'false' || steps.version.outputs.republish == 'true'
         env:
           KEYSTORE_BASE64: ${{ secrets.AUTOSYNC_KEYSTORE_BASE64 }}
           STORE_PASSWORD: ${{ secrets.AUTOSYNC_STORE_PASSWORD }}
@@ -167,7 +178,7 @@ jobs:
           } >> "$GITHUB_ENV"
 
       - name: Test updater and build AutoSync APK
-        if: steps.version.outputs.already_exists == 'false'
+        if: steps.version.outputs.already_exists == 'false' || steps.version.outputs.republish == 'true'
         run: |
           ./gradlew \
             :app:testFullDebugUnitTest \
@@ -177,7 +188,7 @@ jobs:
             --stacktrace
 
       - name: Prepare APK
-        if: steps.version.outputs.already_exists == 'false'
+        if: steps.version.outputs.already_exists == 'false' || steps.version.outputs.republish == 'true'
         env:
           UPSTREAM_TAG: ${{ steps.version.outputs.upstream_tag }}
         run: |
@@ -192,15 +203,30 @@ jobs:
         run: |
           git push origin HEAD:subtitle-autosync
 
-      - name: Create AutoSync release
-        if: steps.version.outputs.already_exists == 'false'
+      - name: Create or republish AutoSync release
+        if: steps.version.outputs.already_exists == 'false' || steps.version.outputs.republish == 'true'
         env:
           GH_TOKEN: ${{ github.token }}
           UPSTREAM_TAG: ${{ steps.version.outputs.upstream_tag }}
           AUTOSYNC_TAG: ${{ steps.version.outputs.autosync_tag }}
           PRERELEASE: ${{ steps.version.outputs.prerelease }}
+          REPUBLISH: ${{ steps.version.outputs.republish }}
         run: |
           APK="NuvioTV-AutoSync-${UPSTREAM_TAG}-universal.apk"
+
+          if [[ "$REPUBLISH" == "true" ]]; then
+            SOURCE_COMMIT="$(git rev-parse HEAD^)"
+            git tag -f "$AUTOSYNC_TAG" "$SOURCE_COMMIT"
+            git push --force origin "refs/tags/$AUTOSYNC_TAG"
+            gh release upload "$AUTOSYNC_TAG" "$APK" \
+              --repo "$GITHUB_REPOSITORY" \
+              --clobber
+            gh release edit "$AUTOSYNC_TAG" \
+              --repo "$GITHUB_REPOSITORY" \
+              --title "$AUTOSYNC_TAG" \
+              --notes "AutoSync TV build based on official NuvioTV $UPSTREAM_TAG. Includes AutoSync V2."
+            exit 0
+          fi
 
           ARGS=(
             "$AUTOSYNC_TAG"
