@@ -1,6 +1,6 @@
 name: AutoSync TV Release
 
-# Release trigger: forced-reference fallback
+# Release trigger: uniform validated delay-only timing
 
 on:
   workflow_dispatch:

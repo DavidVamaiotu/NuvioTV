@@ -2,6 +2,7 @@ package com.nuvio.tv.ui.screens.player.autosync
 
 import com.nuvio.tv.ui.screens.player.SubtitleSyncCue
 import kotlin.math.abs
+import kotlin.math.roundToLong
 import org.junit.Assert.assertEquals as junitAssertEquals
 import org.junit.Assert.assertNotNull as junitAssertNotNull
 import org.junit.Assert.assertTrue as junitAssertTrue
@@ -60,6 +61,76 @@ class AutoSyncTimelineRetimeTest {
     }
 
     @Test
+    fun validatedDelayOnlyKeepsOneUniformOffsetDespiteLocalReferenceTimingDifferences() {
+        val externalBase = irregularTimeline(220)
+        val reference = externalBase.mapIndexed { index, cue ->
+            val localAdjustmentMs = when (index % 5) {
+                0 -> -300L
+                1 -> 200L
+                2 -> 0L
+                3 -> 300L
+                else -> -100L
+            }
+            cue.copy(
+                startTimeMs = cue.startTimeMs + localAdjustmentMs,
+                endTimeMs = cue.endTimeMs + localAdjustmentMs,
+            )
+        }
+        val target = shift(externalBase, -4_000L)
+
+        val result = assertNotNull(
+            AutoSyncTimelineRetimer.retime(
+                reference = reference,
+                target = target,
+                coarseScale = 1.0,
+                coarseInterceptMs = 0.0,
+                discoverAlignment = true,
+            ),
+        )
+
+        assertTrue(result.confident)
+        assertEquals("delay-only-validated", result.alignmentSource)
+        assertTrue(result.groups.isNotEmpty())
+        val expectedOffsetMs = result.alignmentInterceptMs.roundToLong()
+        result.cues.forEach { cue ->
+            assertEquals(expectedOffsetMs, cue.startTimeMs - cue.originalStartTimeMs)
+            assertEquals(expectedOffsetMs, cue.endTimeMs - cue.originalEndTimeMs)
+        }
+    }
+
+    @Test
+    fun precomputedDelayFastPathOutputsOnlyTheValidatedUniformOffset() {
+        val reference = irregularTimeline(220)
+        val target = shift(reference, -8_400L)
+        val alignment = assertNotNull(
+            AutoSyncTimelineRetimer.findDelayOnlyAlignment(reference, target),
+        )
+        var path: String? = null
+
+        val result = assertNotNull(
+            AutoSyncTimelineRetimer.retime(
+                reference = reference,
+                target = target,
+                coarseScale = 1.0,
+                coarseInterceptMs = 0.0,
+                discoverAlignment = true,
+                precomputedDelayOnly = alignment,
+                timingObserver = { timing -> path = timing.path },
+            ),
+        )
+
+        assertTrue(result.confident)
+        assertEquals("fast-delay", path)
+        assertEquals("delay-only-validated", result.alignmentSource)
+        assertTrue(result.groups.isNotEmpty())
+        val expectedOffsetMs = result.alignmentInterceptMs.roundToLong()
+        result.cues.forEach { cue ->
+            assertEquals(expectedOffsetMs, cue.startTimeMs - cue.originalStartTimeMs)
+            assertEquals(expectedOffsetMs, cue.endTimeMs - cue.originalEndTimeMs)
+        }
+    }
+
+    @Test
     fun delayOnlyFastPathWorksWithTooFewCuesForDp() {
         val reference = irregularTimeline(6)
         val target = shift(reference, -4_200L)
@@ -101,6 +172,12 @@ class AutoSyncTimelineRetimeTest {
         )
         assertTrue(result.confident)
         assertEquals("activity-correlation", result.alignmentSource)
+        assertTrue(
+            result.cues
+                .map { cue -> cue.startTimeMs - cue.originalStartTimeMs }
+                .distinct()
+                .size > 1,
+        )
     }
 
     @Test

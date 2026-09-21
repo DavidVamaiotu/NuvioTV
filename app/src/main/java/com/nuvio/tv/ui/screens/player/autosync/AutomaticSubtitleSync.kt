@@ -27,8 +27,9 @@ import kotlin.math.roundToLong
  * Android-only AutoSync V2.
  *
  * V2 first performs a cheap fixed-scale delay-only check. If one constant offset
- * is strong and stable across the movie, it returns a uniform shift immediately.
- * Otherwise it discovers the whole-film affine transform and runs cue/group DP.
+ * is strong and stable across the movie, it validates that hypothesis structurally
+ * and applies one uniform shift. Otherwise it discovers the whole-film affine
+ * transform and runs cue/group DP retiming.
  */
 internal object AutomaticSubtitleSync {
     private const val MIN_SELECTED_CUES = 1
