@@ -60,6 +60,43 @@ class ReleaseSelectorTest {
         assertEquals(listOf("1.1.0"), selected.map { it.tagName })
     }
 
+    @Test
+    fun `autosync fork only follows canonical revision tags`() {
+        val releases = listOf(
+            release("1.0.1-autosync"),
+            release("1.0.0-autosync.2"),
+            release("1.0.0-autosync.1"),
+            release("1.0.0")
+        )
+
+        val selected = ReleaseSelector.eligibleReleases(
+            releases = releases,
+            channel = UpdateChannel.STABLE,
+            canonicalAutoSyncOnly = true
+        )
+
+        assertEquals(
+            listOf("1.0.0-autosync.2", "1.0.0-autosync.1"),
+            selected.map { it.tagName }
+        )
+    }
+
+    @Test
+    fun `stable autosync revision remains eligible while beta base does not`() {
+        val releases = listOf(
+            release("1.1.0-beta-autosync.1"),
+            release("1.0.0-autosync.3")
+        )
+
+        val selected = ReleaseSelector.eligibleReleases(
+            releases = releases,
+            channel = UpdateChannel.STABLE,
+            canonicalAutoSyncOnly = true
+        )
+
+        assertEquals(listOf("1.0.0-autosync.3"), selected.map { it.tagName })
+    }
+
     private fun release(
         tag: String,
         name: String = tag,
