@@ -36,8 +36,7 @@ jobs:
           set -euo pipefail
 
           RELEASE_JSON="$(
-            gh api repos/NuvioMedia/NuvioTV/releases \
-              --jq '[.[] | select(.draft == false)][0]'
+            gh api repos/NuvioMedia/NuvioTV/releases               --jq '[.[] | select(.draft == false)][0]'
           )"
 
           UPSTREAM_TAG="$(printf '%s' "$RELEASE_JSON" | jq -r '.tag_name')"
@@ -54,16 +53,19 @@ jobs:
             NEEDS_SYNC=true
           fi
 
-          # Scheduled runs only act when a new upstream release has not yet been mirrored.
-          # Manual workflow dispatches and deliberate workflow-file pushes create a fresh
-          # AutoSync release for the current upstream base.
+          # Scheduled runs only act on a newly published upstream release.
+          # A manual dispatch or deliberate workflow-file push creates the next
+          # AutoSync revision for the current upstream base.
           if [[ "$GITHUB_EVENT_NAME" == "schedule" && "$NEEDS_SYNC" != "true" ]]; then
             SHOULD_RELEASE=false
           else
             SHOULD_RELEASE=true
           fi
 
+          BASE_TAG="${UPSTREAM_TAG#v}"
+
           echo "upstream_tag=$UPSTREAM_TAG" >> "$GITHUB_OUTPUT"
+          echo "base_tag=$BASE_TAG" >> "$GITHUB_OUTPUT"
           echo "prerelease=$PRERELEASE" >> "$GITHUB_OUTPUT"
           echo "needs_sync=$NEEDS_SYNC" >> "$GITHUB_OUTPUT"
           echo "should_release=$SHOULD_RELEASE" >> "$GITHUB_OUTPUT"
@@ -77,8 +79,7 @@ jobs:
         if: steps.upstream.outputs.should_release == 'true'
         run: |
           git config user.name "github-actions[bot]"
-          git config user.email \
-            "41898282+github-actions[bot]@users.noreply.github.com"
+          git config user.email             "41898282+github-actions[bot]@users.noreply.github.com"
 
       - name: Fetch official NuvioTV release
         if: steps.upstream.outputs.should_release == 'true' && steps.upstream.outputs.needs_sync == 'true'
@@ -87,8 +88,7 @@ jobs:
         run: |
           git remote remove upstream 2>/dev/null || true
           git remote add upstream https://github.com/NuvioMedia/NuvioTV.git
-          git fetch upstream \
-            "refs/tags/$UPSTREAM_TAG:refs/tags/nuvio-$UPSTREAM_TAG"
+          git fetch upstream             "refs/tags/$UPSTREAM_TAG:refs/tags/nuvio-$UPSTREAM_TAG"
 
       - name: Merge official release
         if: steps.upstream.outputs.should_release == 'true' && steps.upstream.outputs.needs_sync == 'true'
@@ -97,6 +97,7 @@ jobs:
         run: |
           git merge --squash "refs/tags/nuvio-$UPSTREAM_TAG"
 
+          # AutoSync owns its release workflow and updater behavior.
           git restore --source=HEAD --staged --worktree .github/workflows
 
           if git diff --cached --quiet; then
@@ -105,48 +106,43 @@ jobs:
             git commit -m "Sync NuvioTV $UPSTREAM_TAG"
           fi
 
-      - name: Choose next AutoSync version
+      - name: Choose next AutoSync revision
         if: steps.upstream.outputs.should_release == 'true'
         id: version
         env:
           GH_TOKEN: ${{ github.token }}
-          UPSTREAM_TAG: ${{ steps.upstream.outputs.upstream_tag }}
+          BASE_TAG: ${{ steps.upstream.outputs.base_tag }}
         run: |
           set -euo pipefail
 
-          CORE="${UPSTREAM_TAG#v}"
-          CORE="${CORE%%-*}"
-          CORE="${CORE%%+*}"
-
-          IFS='.' read -r MAJOR MINOR PATCH <<< "$CORE"
-          if [[ ! "$MAJOR" =~ ^[0-9]+$ || ! "$MINOR" =~ ^[0-9]+$ || ! "$PATCH" =~ ^[0-9]+$ ]]; then
-            echo "Unsupported upstream version: $UPSTREAM_TAG" >&2
-            exit 1
-          fi
-
-          MAX_EXISTING_PATCH=-1
+          MAX_REVISION=0
           while IFS= read -r TAG; do
-            if [[ "$TAG" =~ ^${MAJOR}\.${MINOR}\.([0-9]+)-autosync$ ]]; then
-              CANDIDATE_PATCH="${BASH_REMATCH[1]}"
-              if (( CANDIDATE_PATCH > MAX_EXISTING_PATCH )); then
-                MAX_EXISTING_PATCH="$CANDIDATE_PATCH"
+            if [[ "$TAG" =~ ^${BASE_TAG}-autosync.([0-9]+)$ ]]; then
+              REVISION="${BASH_REMATCH[1]}"
+              if (( REVISION > MAX_REVISION )); then
+                MAX_REVISION="$REVISION"
               fi
             fi
           done < <(
-            gh api --paginate "repos/$GITHUB_REPOSITORY/releases?per_page=100" \
-              --jq '.[].tag_name'
+            gh api --paginate "repos/$GITHUB_REPOSITORY/releases?per_page=100"               --jq '.[].tag_name'
           )
 
-          NEXT_PATCH=$(( PATCH + 1 ))
-          if (( MAX_EXISTING_PATCH >= NEXT_PATCH )); then
-            NEXT_PATCH=$(( MAX_EXISTING_PATCH + 1 ))
+          NEXT_REVISION=$(( MAX_REVISION + 1 ))
+          AUTOSYNC_TAG="${BASE_TAG}-autosync.${NEXT_REVISION}"
+
+          # One-time compatibility bridge for the already-published 1.0.0 fork.
+          # Old installs understand 1.0.1-autosync as newer than 1.0.0, but the
+          # APK behind that bridge uses the canonical 1.0.0-autosync.N version.
+          BRIDGE_TAG=""
+          if [[ "$BASE_TAG" == "1.0.0" ]]; then
+            if ! gh release view "1.0.1-autosync"                 --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+              BRIDGE_TAG="1.0.1-autosync"
+            fi
           fi
 
-          AUTOSYNC_VERSION="$MAJOR.$MINOR.$NEXT_PATCH"
-          AUTOSYNC_TAG="$AUTOSYNC_VERSION-autosync"
-
-          echo "version=$AUTOSYNC_VERSION" >> "$GITHUB_OUTPUT"
+          echo "revision=$NEXT_REVISION" >> "$GITHUB_OUTPUT"
           echo "tag=$AUTOSYNC_TAG" >> "$GITHUB_OUTPUT"
+          echo "bridge_tag=$BRIDGE_TAG" >> "$GITHUB_OUTPUT"
 
       - name: Set up Java
         if: steps.upstream.outputs.should_release == 'true'
@@ -210,10 +206,7 @@ jobs:
           printf '%s' "$KEYSTORE_BASE64" |
             base64 --decode > "$KEYSTORE_PATH"
 
-          keytool -list \
-            -keystore "$KEYSTORE_PATH" \
-            -storepass "$STORE_PASSWORD" \
-            -alias "$KEY_ALIAS" >/dev/null
+          keytool -list             -keystore "$KEYSTORE_PATH"             -storepass "$STORE_PASSWORD"             -alias "$KEY_ALIAS" >/dev/null
 
           {
             echo "NUVIO_RELEASE_STORE_FILE=$KEYSTORE_PATH"
@@ -222,16 +215,15 @@ jobs:
             echo "NUVIO_RELEASE_KEY_PASSWORD=$KEY_PASSWORD"
           } >> "$GITHUB_ENV"
 
-      - name: Stamp AutoSync build version
+      - name: Stamp canonical AutoSync version
         if: steps.upstream.outputs.should_release == 'true'
         env:
-          AUTOSYNC_VERSION: ${{ steps.version.outputs.version }}
+          AUTOSYNC_TAG: ${{ steps.version.outputs.tag }}
         run: |
           set -euo pipefail
 
-          # Epoch seconds are monotonic and remain below Android's versionCode limit for years.
           AUTOSYNC_VERSION_CODE="$(date +%s)"
-          export AUTOSYNC_VERSION_CODE
+          export AUTOSYNC_VERSION_CODE AUTOSYNC_TAG
 
           python3 - <<'PY'
           import os
@@ -241,17 +233,17 @@ jobs:
           path = Path("app/build.gradle.kts")
           text = path.read_text()
 
-          version_name = os.environ["AUTOSYNC_VERSION"]
+          version_name = os.environ["AUTOSYNC_TAG"]
           version_code = os.environ["AUTOSYNC_VERSION_CODE"]
 
           text, code_count = re.subn(
-              r'versionCode\s*=\s*\d+',
+              r'versionCodes*=s*d+',
               f'versionCode = {version_code}',
               text,
               count=1,
           )
           text, name_count = re.subn(
-              r'versionName\s*=\s*"[^"]+"',
+              r'versionNames*=s*"[^"]+"',
               f'versionName = "{version_name}"',
               text,
               count=1,
@@ -268,53 +260,66 @@ jobs:
       - name: Test updater and build AutoSync APK
         if: steps.upstream.outputs.should_release == 'true'
         run: |
-          ./gradlew \
-            :app:testFullDebugUnitTest \
-            --tests 'com.nuvio.tv.updater.*' \
-            :app:assembleFullDebug \
-            --build-cache \
-            --stacktrace
+          ./gradlew             :app:testFullDebugUnitTest             --tests 'com.nuvio.tv.updater.*'             :app:assembleFullDebug             --build-cache             --stacktrace
 
-      - name: Prepare APK
+      - name: Prepare APKs
         if: steps.upstream.outputs.should_release == 'true'
         env:
-          AUTOSYNC_VERSION: ${{ steps.version.outputs.version }}
+          AUTOSYNC_TAG: ${{ steps.version.outputs.tag }}
+          BRIDGE_TAG: ${{ steps.version.outputs.bridge_tag }}
         run: |
+          set -euo pipefail
+
           SOURCE="app/build/outputs/apk/full/debug/app-full-universal-debug.apk"
-          DEST="NuvioTV-AutoSync-${AUTOSYNC_VERSION}-universal.apk"
+          CANONICAL_APK="NuvioTV-AutoSync-${AUTOSYNC_TAG}-universal.apk"
 
           test -f "$SOURCE"
-          cp "$SOURCE" "$DEST"
+          cp "$SOURCE" "$CANONICAL_APK"
 
-      - name: Push merged release
+          if [[ -n "$BRIDGE_TAG" ]]; then
+            cp "$SOURCE" "NuvioTV-AutoSync-${BRIDGE_TAG}-universal.apk"
+          fi
+
+      - name: Push merged upstream release
         if: steps.upstream.outputs.should_release == 'true' && steps.upstream.outputs.needs_sync == 'true'
         run: |
           git push origin HEAD:subtitle-autosync
 
-      - name: Create AutoSync release
+      - name: Create canonical AutoSync release
         if: steps.upstream.outputs.should_release == 'true'
         env:
           GH_TOKEN: ${{ github.token }}
           UPSTREAM_TAG: ${{ steps.upstream.outputs.upstream_tag }}
-          AUTOSYNC_VERSION: ${{ steps.version.outputs.version }}
           AUTOSYNC_TAG: ${{ steps.version.outputs.tag }}
           PRERELEASE: ${{ steps.upstream.outputs.prerelease }}
         run: |
-          APK="NuvioTV-AutoSync-${AUTOSYNC_VERSION}-universal.apk"
+          set -euo pipefail
 
+          APK="NuvioTV-AutoSync-${AUTOSYNC_TAG}-universal.apk"
           ARGS=(
             "$AUTOSYNC_TAG"
             "$APK"
             --repo "$GITHUB_REPOSITORY"
             --target "$(git rev-parse HEAD)"
             --title "$AUTOSYNC_TAG"
-            --notes "AutoSync TV $AUTOSYNC_VERSION based on official NuvioTV $UPSTREAM_TAG. Includes AutoSync V2."
+            --notes "AutoSync TV revision $AUTOSYNC_TAG based on official NuvioTV $UPSTREAM_TAG. Includes AutoSync V2."
           )
 
           if [[ "$PRERELEASE" == "true" ]]; then
             ARGS+=(--prerelease)
-          else
-            ARGS+=(--latest)
           fi
 
           gh release create "${ARGS[@]}"
+
+      - name: Create one-time updater bridge
+        if: steps.upstream.outputs.should_release == 'true' && steps.version.outputs.bridge_tag != ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+          UPSTREAM_TAG: ${{ steps.upstream.outputs.upstream_tag }}
+          AUTOSYNC_TAG: ${{ steps.version.outputs.tag }}
+          BRIDGE_TAG: ${{ steps.version.outputs.bridge_tag }}
+        run: |
+          set -euo pipefail
+
+          APK="NuvioTV-AutoSync-${BRIDGE_TAG}-universal.apk"
+          gh release create "$BRIDGE_TAG" "$APK"             --repo "$GITHUB_REPOSITORY"             --target "$(git rev-parse HEAD)"             --title "$BRIDGE_TAG"             --latest             --notes "Compatibility bridge for existing AutoSync 1.0.0 installs. The APK itself is canonical $AUTOSYNC_TAG, based on official NuvioTV $UPSTREAM_TAG. Future AutoSync releases use upstream-version-autosync.revision."
