@@ -88,6 +88,7 @@ internal fun PlayerRuntimeController.maybeRunAutomaticSubtitleSync(
             )
             showAutoSyncToast("Auto Sync V2: checking embedded subtitles…")
 
+            var noSubtitleTracks = false
             val resolved = AutomaticSubtitleSync.findTimelineRetime(
                 sourceKey = sourceUrlAtStart,
                 sourceHeaders = sourceHeadersAtStart,
@@ -124,6 +125,7 @@ internal fun PlayerRuntimeController.maybeRunAutomaticSubtitleSync(
                 onReferenceReady = {
                     showAutoSyncToast("Auto Sync V2: comparing subtitles…")
                 },
+                onNoSubtitleTracks = { noSubtitleTracks = true },
             )
 
             if (resolved == null) {
@@ -135,7 +137,8 @@ internal fun PlayerRuntimeController.maybeRunAutomaticSubtitleSync(
                     "REJECT V2 - original subtitle timing kept",
                 )
                 showAutoSyncToast(
-                    "Auto Sync V2: no reliable match",
+                    if (noSubtitleTracks) "No subtitles in tracks"
+                    else "Auto Sync V2: no reliable match",
                     Toast.LENGTH_LONG,
                 )
                 return@launch

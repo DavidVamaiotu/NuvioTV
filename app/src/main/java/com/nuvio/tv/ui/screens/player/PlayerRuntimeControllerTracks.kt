@@ -1070,6 +1070,7 @@ internal fun PlayerRuntimeController.applyPersistedTrackPreference(
                             subtitleAddonRestoredByPersistedPreference = true
                             pendingRestoredAddonSubtitle = addonFallback
                             selectAddonSubtitle(addonFallback)
+                            maybeRunAutomaticSubtitleSync(addonFallback)
                             updatedAddonSubtitle = addonFallback
                             updatedPending = updatedPending.copy(subtitle = null)
                         } else {
@@ -1107,6 +1108,7 @@ internal fun PlayerRuntimeController.applyPersistedTrackPreference(
                 subtitleAddonRestoredByPersistedPreference = true
                 pendingRestoredAddonSubtitle = addonMatch
                 selectAddonSubtitle(addonMatch)
+                maybeRunAutomaticSubtitleSync(addonMatch)
                 updatedAddonSubtitle = addonMatch
                 val shouldKeepPendingUntilMpvConfirmsSelection =
                     usingSwitchPending && isUsingMpvEngine()
@@ -1758,6 +1760,7 @@ internal fun PlayerRuntimeController.tryAutoSelectPreferredSubtitleFromAvailable
         )
         if (selectedMatchesPrimary) {
             autoSubtitleSelected = true
+            maybeRunAutomaticSubtitleSync(matchingSelectedAddon)
             Log.d(PlayerRuntimeController.TAG, "AUTO_SUB stop: matching addon already selected (primary match)")
             return
         }

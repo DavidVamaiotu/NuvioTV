@@ -165,6 +165,7 @@ internal object AutomaticSubtitleSync {
         alternativeSubtitles: List<AutoSyncSubtitleCandidate> = emptyList(),
         alternativeSubtitlesProvider: (() -> List<AutoSyncSubtitleCandidate>)? = null,
         onReferenceReady: () -> Unit = {},
+        onNoSubtitleTracks: () -> Unit = {},
         sourceHeaders: Map<String, String> = emptyMap(),
     ): AutoSyncResolvedTimeline? {
         Unit
@@ -592,6 +593,10 @@ internal object AutomaticSubtitleSync {
             }
 
             if (referenceTracks.isEmpty()) {
+                val noSubtitleTracks = indexedTimeline?.noSubtitleTracks == true
+                if (noSubtitleTracks) {
+                    onNoSubtitleTracks()
+                }
                 prefetchedAlternativeLoads.forEach { (url, job) ->
                     if (!job.isCompleted) {
                         markSubtitleLoadCancellation(url, source = "reference-reject")
@@ -604,7 +609,11 @@ internal object AutomaticSubtitleSync {
                 selectedSubtitleDeferred.cancel()
                 AutoSyncDebugLog.section { "FINAL RECOMMENDATION" }
                 AutoSyncDebugLog.warn {
-                    "REJECT no complete embedded subtitle timeline is available for V2"
+                    if (noSubtitleTracks) {
+                        "REJECT no subtitles in tracks"
+                    } else {
+                        "REJECT no complete embedded subtitle timeline is available for V2"
+                    }
                 }
                 return@supervisorScope null
             }
