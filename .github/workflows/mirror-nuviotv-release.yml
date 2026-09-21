@@ -52,8 +52,8 @@ jobs:
           fi
 
           if [[ "$GITHUB_EVENT_NAME" == "push" ]]; then
-            # Workflow-file pushes are maintenance-only. Do not mint a new AutoSync revision.
-            SHOULD_RELEASE=false
+            # Deliberate one-shot release trigger for the current AutoSync branch.
+            SHOULD_RELEASE=true
           elif [[ "$GITHUB_EVENT_NAME" == "schedule" && "$NEEDS_SYNC" != "true" ]]; then
             SHOULD_RELEASE=false
           else
