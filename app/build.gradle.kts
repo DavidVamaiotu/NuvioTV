@@ -104,7 +104,7 @@ android {
     ndkVersion = "29.0.14206865"
 
     defaultConfig {
-        applicationId = "com.nuvio.tv"
+        applicationId = if (autoSyncFork) "com.nuviodebug.com" else "com.nuvio.tv"
         minSdk = 24
         targetSdk = 36
         versionCode = 1062
@@ -361,17 +361,6 @@ androidComponents {
     onVariants(selector().withBuildType("debug")) { variant ->
         val isPlaystore = variant.productFlavors.any { it.second == "playstore" }
         variant.applicationId.set(if (isPlaystore) "com.nuvio.appdebug" else "com.nuviodebug.com")
-    }
-
-    // AutoSync releases must keep the same package ID as existing AutoSync installs
-    // so optimized release APKs can update the former debug-based builds in place.
-    if (autoSyncFork) {
-        onVariants(selector().withBuildType("release")) { variant ->
-            val isFull = variant.productFlavors.any { it.second == "full" }
-            if (isFull) {
-                variant.applicationId.set("com.nuviodebug.com")
-            }
-        }
     }
 }
 
