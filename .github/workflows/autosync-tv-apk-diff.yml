@@ -1,0 +1,74 @@
+name: AutoSync TV APK Diff
+
+on:
+  push:
+    branches:
+      - subtitle-autosync
+    paths:
+      - ".github/workflows/autosync-tv-apk-diff.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  diff:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download APKs
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          mkdir official autosync
+          gh release download 1.0.0 --repo NuvioMedia/NuvioTV --pattern 'app-full-arm64-v8a-release.apk' --dir official
+          gh release download 1.0.0-autosync.6 --repo DavidVamaiotu/NuvioTV --pattern 'NuvioTV-AutoSync-1.0.0-autosync.6-arm64-v8a.apk' --dir autosync
+
+      - name: Compare APK contents
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          from zipfile import ZipFile
+
+          official = next(Path("official").glob("*.apk"))
+          autosync = next(Path("autosync").glob("*.apk"))
+
+          def entries(path):
+              with ZipFile(path) as z:
+                  return {
+                      i.filename: (i.file_size, i.compress_size)
+                      for i in z.infolist()
+                      if not i.is_dir()
+                  }
+
+          a = entries(official)
+          b = entries(autosync)
+
+          print(f"official_bytes={official.stat().st_size}")
+          print(f"autosync_bytes={autosync.stat().st_size}")
+          print(f"delta_bytes={autosync.stat().st_size - official.stat().st_size}")
+          print()
+
+          rows = []
+          for name in sorted(set(a) | set(b)):
+              au, ac = a.get(name, (0, 0))
+              bu, bc = b.get(name, (0, 0))
+              delta = bc - ac
+              if delta:
+                  rows.append((delta, name, ac, bc, au, bu))
+
+          print("=== TOP COMPRESSED-SIZE DELTAS ===")
+          for delta, name, ac, bc, au, bu in sorted(rows, reverse=True)[:80]:
+              print(f"{delta:+12d}  {name}  official_c={ac} autosync_c={bc} official_u={au} autosync_u={bu}")
+
+          print()
+          print("=== AUTOSYNC-ONLY FILES, LARGEST ===")
+          only_b = [(bc, name, bu) for name, (bu, bc) in b.items() if name not in a]
+          for bc, name, bu in sorted(only_b, reverse=True)[:80]:
+              print(f"{bc:12d}  {name}  uncompressed={bu}")
+
+          print()
+          print("=== OFFICIAL-ONLY FILES, LARGEST ===")
+          only_a = [(ac, name, au) for name, (au, ac) in a.items() if name not in b]
+          for ac, name, au in sorted(only_a, reverse=True)[:80]:
+              print(f"{ac:12d}  {name}  uncompressed={au}")
+          PY
