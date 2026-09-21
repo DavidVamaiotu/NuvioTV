@@ -286,7 +286,7 @@ jobs:
           }
 
           NEW_BADGING="$(read_badging "$NEW_APK")"
-          NEW_PACKAGE="$(printf '%s\n' "$NEW_BADGING" | sed -n "s/.*name='\([^']*\)'.*/\1/p")"
+          NEW_PACKAGE="$(printf '%s\n' "$NEW_BADGING" | sed -n "s/^package: name='\([^']*\)'.*/\1/p")"
           NEW_VERSION="$(printf '%s\n' "$NEW_BADGING" | sed -n "s/.*versionCode='\([^']*\)'.*/\1/p")"
           echo "New APK identity: package=$NEW_PACKAGE versionCode=$NEW_VERSION"
           test "$NEW_PACKAGE" = "com.nuviodebug.com"
@@ -298,7 +298,7 @@ jobs:
             test -n "$PREVIOUS_APK"
 
             OLD_BADGING="$(read_badging "$PREVIOUS_APK")"
-            OLD_PACKAGE="$(printf '%s\n' "$OLD_BADGING" | sed -n "s/.*name='\([^']*\)'.*/\1/p")"
+            OLD_PACKAGE="$(printf '%s\n' "$OLD_BADGING" | sed -n "s/^package: name='\([^']*\)'.*/\1/p")"
             OLD_VERSION="$(printf '%s\n' "$OLD_BADGING" | sed -n "s/.*versionCode='\([^']*\)'.*/\1/p")"
             echo "Previous APK identity: package=$OLD_PACKAGE versionCode=$OLD_VERSION"
 
