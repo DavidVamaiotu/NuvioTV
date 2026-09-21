@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - subtitle-autosync
+      - autosync-v2-debug-apk
     paths:
       - "app/**"
       - "nuvio-exoplayer-engine/**"
