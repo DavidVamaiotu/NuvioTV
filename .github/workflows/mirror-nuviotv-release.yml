@@ -150,6 +150,7 @@ jobs:
           SUPABASE_URL: ${{ secrets.NUVIO_SUPABASE_URL }}
           SUPABASE_KEY: ${{ secrets.NUVIO_SUPABASE_ANON_KEY }}
           SUPABASE_FALLBACK: ${{ secrets.NUVIO_SUPABASE_FALLBACK_URL }}
+          TMDB_API_KEY: ${{ secrets.TMDB_API_KEY }}
         run: |
           set -e
           test -n "$SUPABASE_URL"
@@ -159,6 +160,7 @@ jobs:
           NUVIO_SUPABASE_URL=$SUPABASE_URL
           NUVIO_SUPABASE_ANON_KEY=$SUPABASE_KEY
           NUVIO_SUPABASE_FALLBACK_URL=$SUPABASE_FALLBACK
+          TMDB_API_KEY=$TMDB_API_KEY
           TV_LOGIN_WEB_BASE_URL=https://nuvio.tv/tv-login
           DEVICE_LOGIN_WEB_BASE_URL=https://nuvio.tv/link
           AVATAR_PUBLIC_BASE_URL=${SUPABASE_URL%/}/storage/v1/object/public/avatars
