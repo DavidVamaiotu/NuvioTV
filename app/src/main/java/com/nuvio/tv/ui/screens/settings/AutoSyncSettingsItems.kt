@@ -44,4 +44,19 @@ internal fun LazyListScope.autoSyncSettingsItems(
             enabled = enabled,
         )
     }
+
+    item(key = "subtitle_auto_sync_aggressive_mode") {
+        val context = LocalContext.current
+        AutoSyncPreferences.ensureLoaded(context)
+        val checked by AutoSyncPreferences.aggressiveMode.collectAsStateWithLifecycle()
+
+        ToggleSettingsItem(
+            icon = Icons.Default.Sync,
+            title = "Aggressive Auto Sync",
+            subtitle = "Search more same-language subtitle candidates before giving up. Disable for the faster passive V2 policy.",
+            isChecked = checked,
+            onCheckedChange = { AutoSyncPreferences.setAggressiveMode(context, it) },
+            enabled = enabled,
+        )
+    }
 }

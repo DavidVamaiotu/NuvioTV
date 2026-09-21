@@ -1368,6 +1368,11 @@ fun PlayerRuntimeController.onEvent(event: PlayerEvent) {
             autoSubtitleSelected = true
             rememberAddonSubtitleSelection(event.subtitle)
             selectAddonSubtitle(event.subtitle)
+            maybeRunAutomaticSubtitleSync(
+                selectedSubtitle = event.subtitle,
+                candidateScope =
+                    com.nuvio.tv.ui.screens.player.autosync.AutoSyncCandidateScope.SELECTED_ONLY,
+            )
             _uiState.update {
                 it.copy(
                     showSubtitleOverlay = true,

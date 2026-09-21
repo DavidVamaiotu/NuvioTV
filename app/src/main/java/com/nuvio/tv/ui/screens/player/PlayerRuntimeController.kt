@@ -357,6 +357,9 @@ class PlayerRuntimeController(
     internal var automaticSubtitleSyncJob: Job? = null
     /** ExoPlayer sidecar path: external addon cues without setMediaSource (preserves buffer). */
     internal var sidecarSubtitleJob: Job? = null
+    internal var sidecarRawBodyDeferred: kotlinx.coroutines.CompletableDeferred<String?>? = null
+    internal var sidecarGenerationCounter: Long = 0L
+    internal var activeSidecarGeneration: Long = 0L
     internal var activeSidecarSubtitleKey: String? = null
     internal var sidecarTimedCues: List<androidx.media3.extractor.text.CuesWithTiming> = emptyList()
     internal var lastSidecarCueSignature: Long? = null

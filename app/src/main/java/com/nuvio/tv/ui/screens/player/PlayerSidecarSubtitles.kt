@@ -16,6 +16,8 @@ import androidx.media3.extractor.text.SubtitleParser
 import androidx.media3.ui.SubtitleView
 import com.nuvio.tv.R
 import com.nuvio.tv.domain.model.Subtitle
+import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.Deferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
@@ -57,6 +59,17 @@ internal fun PlayerRuntimeController.canAttachAddonSubtitleViaSidecar(subtitle: 
     return sidecarParserFactory.supportsFormat(format)
 }
 
+internal fun PlayerRuntimeController.canAttachAddonSubtitleViaSidecar(
+    url: String,
+    useLibass: Boolean,
+): Boolean {
+    val mime = PlayerSubtitleUtils.mimeTypeFromUrl(url)
+    if (mime == MimeTypes.TEXT_SSA && useLibass) return false
+    return sidecarParserFactory.supportsFormat(
+        Format.Builder().setSampleMimeType(mime).build(),
+    )
+}
+
 /**
  * User wants libass (or the current Exo player already runs the libass pipeline).
  * In that case external ASS/SSA must not be rendered via Media3's basic SsaParser sidecar.
@@ -84,7 +97,10 @@ internal fun PlayerRuntimeController.bindExoSubtitleView(subtitleView: SubtitleV
 internal fun PlayerRuntimeController.stopSidecarAddonSubtitle(clearView: Boolean = true) {
     sidecarSubtitleJob?.cancel()
     sidecarSubtitleJob = null
+    sidecarRawBodyDeferred?.complete(null)
+    sidecarRawBodyDeferred = null
     activeSidecarSubtitleKey = null
+    activeSidecarGeneration = 0L
     sidecarTimedCues = emptyList()
     lastSidecarCueSignature = null
     if (clearView) {
@@ -99,31 +115,51 @@ internal fun PlayerRuntimeController.stopSidecarAddonSubtitle(clearView: Boolean
  * Downloads, parses, and starts rendering [subtitle] without reloading the media source.
  * Returns false if the format is unsupported or a newer selection superseded this request.
  */
-internal fun PlayerRuntimeController.startSidecarAddonSubtitle(subtitle: Subtitle): Boolean {
+internal fun PlayerRuntimeController.startSidecarAddonSubtitle(
+    subtitle: Subtitle,
+    rawBodyLoader: (suspend () -> String?)? = null,
+): Boolean {
     if (!canAttachAddonSubtitleViaSidecar(subtitle)) return false
 
-    val subtitleKey = addonSubtitleKey(subtitle)
+    val subtitleKey = subtitle.url
     val urlMimeHint = PlayerSubtitleUtils.mimeTypeFromUrl(subtitle.url)
 
     sidecarSubtitleJob?.cancel()
+    sidecarRawBodyDeferred?.complete(null)
+    val rawBodyDeferred = CompletableDeferred<String?>()
+    sidecarRawBodyDeferred = rawBodyDeferred
+    val generation = ++sidecarGenerationCounter
+    activeSidecarGeneration = generation
     activeSidecarSubtitleKey = subtitleKey
     lastSidecarCueSignature = null
     sidecarTimedCues = emptyList()
     postToSubtitleView { view ->
-        view.setTag(R.id.player_view_sidecar_generation_tag, subtitleKey)
+        view.setTag(R.id.player_view_sidecar_generation_tag, generation)
         view.setCues(emptyList())
     }
 
     sidecarSubtitleJob = scope.launch {
         try {
-            val rawBody = downloadSubtitleBody(subtitle.url, subtitle.lang, subtitle.headers)
-            if (activeSidecarSubtitleKey != subtitleKey) return@launch
+            val rawBody = if (rawBodyLoader != null) {
+                rawBodyLoader()
+            } else {
+                downloadSubtitleBody(subtitle.url, subtitle.lang, subtitle.headers)
+            }
+            rawBodyDeferred.complete(rawBody)
+            if (rawBody == null) throw IllegalStateException("Subtitle body unavailable")
+            if (
+                activeSidecarSubtitleKey != subtitleKey ||
+                activeSidecarGeneration != generation
+            ) return@launch
 
             val resolvedMime = PlayerSubtitleUtils.sniffSubtitleMimeType(rawBody, subtitle.url)
             val parseResult = withContext(Dispatchers.Default) {
                 parseSidecarTimedCuesRobust(rawBody, subtitle.url)
             }
-            if (activeSidecarSubtitleKey != subtitleKey) return@launch
+            if (
+                activeSidecarSubtitleKey != subtitleKey ||
+                activeSidecarGeneration != generation
+            ) return@launch
 
             if (parseResult.cues.isEmpty()) {
                 Log.w(
@@ -134,6 +170,7 @@ internal fun PlayerRuntimeController.startSidecarAddonSubtitle(subtitle: Subtitl
                 )
                 // Stay on sidecar path — do not wipe progressive buffer via setMediaSource.
                 activeSidecarSubtitleKey = null
+                activeSidecarGeneration = 0L
                 sidecarTimedCues = emptyList()
                 postToSubtitleView { view ->
                     view.setTag(R.id.player_view_sidecar_generation_tag, null)
@@ -150,26 +187,84 @@ internal fun PlayerRuntimeController.startSidecarAddonSubtitle(subtitle: Subtitl
                     "(buffer preserved)"
             )
 
-            while (isActive && activeSidecarSubtitleKey == subtitleKey) {
+            while (
+                isActive &&
+                activeSidecarSubtitleKey == subtitleKey &&
+                activeSidecarGeneration == generation
+            ) {
                 renderSidecarCuesAtCurrentPosition()
                 delay(SIDECAR_RENDER_INTERVAL_MS)
             }
         } catch (e: kotlinx.coroutines.CancellationException) {
+            rawBodyDeferred.complete(null)
             throw e
         } catch (e: Exception) {
-            if (activeSidecarSubtitleKey != subtitleKey) return@launch
+            rawBodyDeferred.complete(null)
+            if (
+                activeSidecarSubtitleKey != subtitleKey ||
+                activeSidecarGeneration != generation
+            ) return@launch
             Log.w(
                 PlayerRuntimeController.TAG,
                 "Sidecar subtitle failed id=${subtitle.id}: ${e.message} " +
                     "(buffer preserved; no media reload)"
             )
             activeSidecarSubtitleKey = null
+            activeSidecarGeneration = 0L
             sidecarTimedCues = emptyList()
             postToSubtitleView { view ->
                 view.setTag(R.id.player_view_sidecar_generation_tag, null)
                 view.setCues(emptyList())
             }
             // Intentionally no attachAddonSubtitleViaMediaReload — keeps A/V buffer intact.
+        }
+    }
+    return true
+}
+
+internal fun PlayerRuntimeController.sidecarRawBodyDeferredFor(url: String): Deferred<String?>? =
+    sidecarRawBodyDeferred?.takeIf { activeSidecarSubtitleKey == url }
+
+internal fun PlayerRuntimeController.currentSidecarGenerationFor(url: String): Long? =
+    activeSidecarGeneration.takeIf {
+        activeSidecarSubtitleKey == url && it != 0L
+    }
+
+internal fun PlayerRuntimeController.commitPreparedSidecarSubtitle(
+    expectedCurrentUrl: String,
+    newUrl: String,
+    cues: List<CuesWithTiming>,
+    expectedGeneration: Long? = null,
+): Boolean {
+    if (cues.isEmpty() || activeSidecarSubtitleKey != expectedCurrentUrl) return false
+    if (expectedGeneration != null && activeSidecarGeneration != expectedGeneration) return false
+
+    if (newUrl != expectedCurrentUrl) {
+        sidecarSubtitleJob?.cancel()
+        sidecarRawBodyDeferred?.complete(null)
+        sidecarRawBodyDeferred = null
+        activeSidecarSubtitleKey = newUrl
+        activeSidecarGeneration = ++sidecarGenerationCounter
+    }
+
+    val committedGeneration = activeSidecarGeneration
+    sidecarTimedCues = cues
+    lastSidecarCueSignature = null
+    postToSubtitleView { view ->
+        view.setTag(R.id.player_view_sidecar_generation_tag, committedGeneration)
+    }
+    renderSidecarCuesAtCurrentPosition()
+
+    if (newUrl != expectedCurrentUrl) {
+        sidecarSubtitleJob = scope.launch {
+            while (
+                isActive &&
+                activeSidecarSubtitleKey == newUrl &&
+                activeSidecarGeneration == committedGeneration
+            ) {
+                renderSidecarCuesAtCurrentPosition()
+                delay(SIDECAR_RENDER_INTERVAL_MS)
+            }
         }
     }
     return true
@@ -195,8 +290,14 @@ internal fun PlayerRuntimeController.renderSidecarCuesAtCurrentPosition() {
     val filtered = if (stripSdh) SubtitleSdhFilter.filterCues(sanitized) else sanitized
     val merged = PlayerSubtitleUtils.mergeOverlappingCues(filtered)
     val currentKey = activeSidecarSubtitleKey ?: return
+    val currentGeneration = activeSidecarGeneration
+    if (currentGeneration == 0L) return
     postToSubtitleView { view ->
-        if (view.getTag(R.id.player_view_sidecar_generation_tag) == currentKey) {
+        if (
+            activeSidecarSubtitleKey == currentKey &&
+            activeSidecarGeneration == currentGeneration &&
+            view.getTag(R.id.player_view_sidecar_generation_tag) == currentGeneration
+        ) {
             view.setCues(merged)
         }
     }

@@ -1,29 +1,41 @@
 package com.nuvio.tv.ui.screens.player.autosync
 
-import android.os.SystemClock
 import androidx.media3.common.C
-import com.nuvio.tv.ui.screens.player.PlayerMediaSourceFactory
-import com.nuvio.tv.ui.screens.player.PlayerPlaybackNetworking
+import androidx.media3.common.MimeTypes
+import androidx.media3.common.util.ParsableByteArray
+import androidx.media3.common.util.UnstableApi
+import androidx.media3.container.Mp4Box
+import androidx.media3.extractor.GaplessInfoHolder
+import androidx.media3.extractor.mp4.BoxParser
+import androidx.media3.extractor.mp4.TrackSampleTable
 import com.nuvio.tv.ui.screens.player.SubtitleSyncCue
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.TimeoutCancellationException
+import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withContext
-import kotlinx.coroutines.withTimeoutOrNull
+import kotlinx.coroutines.withTimeout
+import okhttp3.Call
+import okhttp3.Callback
 import okhttp3.OkHttpClient
 import okhttp3.Request
-import java.io.ByteArrayOutputStream
-import java.io.InputStream
+import okhttp3.Response
 import java.util.ArrayDeque
 import java.util.LinkedHashMap
 import java.util.concurrent.TimeUnit
 import kotlin.math.max
 
 /**
- * Player-independent Matroska/WebM embedded subtitle timeline reader.
+ * Player-independent embedded subtitle timeline loader.
  *
- * It performs bounded HTTP range reads only. It never seeks or rebuilds the active ExoPlayer/MPV
- * instance, which keeps AutoSync isolated from NuvioTV's custom Dolby Vision/libass extractor path.
+ * For seekable Matroska/WebM HTTP sources this reads the container's EBML metadata and Cues index
+ * with HTTP range requests. Matroska recommends indexing every subtitle frame in Cues, so a normal
+ * remux can expose the whole embedded subtitle timing timeline without playing or seeking ExoPlayer.
+ *
+ * This is deliberately best-effort. If range requests, Tracks, or subtitle Cues are unavailable,
+ * AutoSync falls back to the existing live Media3 observation path.
  */
+@OptIn(UnstableApi::class)
 internal object EmbeddedSubtitleTimelineLoader {
     private const val TOTAL_TIMEOUT_MS = 7_000L
     private const val INITIAL_PROBE_BYTES = 512 * 1024
@@ -33,16 +45,23 @@ internal object EmbeddedSubtitleTimelineLoader {
     private const val MAX_INFO_BYTES = 512 * 1024
     private const val MAX_TRACKS_BYTES = 4 * 1024 * 1024
     private const val MAX_CUES_BYTES = 8 * 1024 * 1024
-    private const val MAX_TOTAL_DOWNLOAD_BYTES = 16L * 1024L * 1024L
+    private const val MAX_TOTAL_DOWNLOAD_BYTES = 24L * 1024L * 1024L
     private const val MAX_RANGE_REQUESTS = 16
     private const val MAX_SEEK_HEAD_HOPS = 4
     private const val DEFAULT_TIMESTAMP_SCALE_NS = 1_000_000L
     private const val DEFAULT_CUE_DURATION_MS = 5_000L
+    private const val LAST_MKV_CUE_ESTIMATED_DURATION_MS = 2_000L
+    private const val MAX_MKV_INTER_CUE_ESTIMATED_DURATION_MS = 4_000L
     private const val MIN_INDEXED_CUES = 8
     private const val MIN_INDEXED_SPAN_MS = 30_000L
     private const val MAX_CACHE_ENTRIES = 2
     private const val NEGATIVE_CACHE_TTL_MS = 120_000L
+    private const val MAX_MP4_MOOV_BYTES = 24 * 1024 * 1024
+    private const val MAX_MP4_TOP_LEVEL_BOXES = 64
+    private const val MP4_BOX_HEADER_BYTES = 16
 
+    // Top-level Matroska/EBML IDs.
+    private const val ID_EBML = 0x1A45DFA3L
     private const val ID_SEGMENT = 0x18538067L
     private const val ID_SEEK_HEAD = 0x114D9B74L
     private const val ID_INFO = 0x1549A966L
@@ -50,12 +69,15 @@ internal object EmbeddedSubtitleTimelineLoader {
     private const val ID_CUES = 0x1C53BB6BL
     private const val ID_CLUSTER = 0x1F43B675L
 
+    // SeekHead.
     private const val ID_SEEK = 0x4DBBL
     private const val ID_SEEK_ID = 0x53ABL
     private const val ID_SEEK_POSITION = 0x53ACL
 
+    // Info.
     private const val ID_TIMESTAMP_SCALE = 0x2AD7B1L
 
+    // Tracks.
     private const val ID_TRACK_ENTRY = 0xAEL
     private const val ID_TRACK_NUMBER = 0xD7L
     private const val ID_TRACK_TYPE = 0x83L
@@ -71,11 +93,20 @@ internal object EmbeddedSubtitleTimelineLoader {
     private const val ID_CODEC_ID = 0x86L
     private const val TRACK_TYPE_SUBTITLE = 17L
 
+    // Cues.
     private const val ID_CUE_POINT = 0xBBL
     private const val ID_CUE_TIME = 0xB3L
     private const val ID_CUE_TRACK_POSITIONS = 0xB7L
     private const val ID_CUE_TRACK = 0xF7L
     private const val ID_CUE_DURATION = 0xB2L
+
+    private val httpClient = OkHttpClient.Builder()
+        .connectTimeout(3, TimeUnit.SECONDS)
+        .readTimeout(4, TimeUnit.SECONDS)
+        .callTimeout(5, TimeUnit.SECONDS)
+        .followRedirects(true)
+        .followSslRedirects(true)
+        .build()
 
     private val cacheLock = Any()
     private val cache = object : LinkedHashMap<String, CachedLoadResult>(
@@ -99,110 +130,127 @@ internal object EmbeddedSubtitleTimelineLoader {
         }
 
         val cacheKey = "$sourceUrl#${sourceHeaders.hashCode()}"
-        val nowMs = SystemClock.elapsedRealtime()
+        val nowNs = System.nanoTime()
         synchronized(cacheLock) {
             val cached = cache[cacheKey]
             if (cached != null) {
-                cached.timeline?.let { return it }
-                if (nowMs - cached.createdAtMs < NEGATIVE_CACHE_TTL_MS) return null
+                if (cached.timeline != null) return cached.timeline
+                val ageMs = (nowNs - cached.createdAtNs).coerceAtLeast(0L) / 1_000_000L
+                if (ageMs < NEGATIVE_CACHE_TTL_MS) return null
                 cache.remove(cacheKey)
             }
         }
 
         return try {
-            val loaded = withTimeoutOrNull(TOTAL_TIMEOUT_MS) {
-                withContext(Dispatchers.IO) {
-                    loadMatroskaCueIndex(sourceUrl, sourceHeaders)
+            val loaded = try {
+                withTimeout(TOTAL_TIMEOUT_MS) {
+                    withContext(Dispatchers.IO) {
+                        loadMatroskaCueIndex(sourceUrl, sourceHeaders)
+                    }
                 }
+            } catch (_: TimeoutCancellationException) {
+                // A transient deadline is not evidence that the container is unsupported.
+                // Do not publish a negative cache entry for timed-out work.
+                return null
             }
+
             synchronized(cacheLock) {
                 cache[cacheKey] = CachedLoadResult(
                     timeline = loaded,
-                    createdAtMs = SystemClock.elapsedRealtime(),
+                    createdAtNs = System.nanoTime(),
                 )
             }
             loaded
         } catch (cancel: CancellationException) {
+            // External cancellation must remain observable and must never publish cache state.
             throw cancel
-        } catch (_: Throwable) {
+        } catch (_: Exception) {
             synchronized(cacheLock) {
                 cache[cacheKey] = CachedLoadResult(
                     timeline = null,
-                    createdAtMs = SystemClock.elapsedRealtime(),
+                    createdAtNs = System.nanoTime(),
                 )
             }
             null
         }
     }
 
-    private fun loadMatroskaCueIndex(
+    private suspend fun loadMatroskaCueIndex(
         sourceUrl: String,
         sourceHeaders: Map<String, String>,
     ): IndexedEmbeddedTimeline? {
-        val startedMs = SystemClock.elapsedRealtime()
-        val client = PlayerPlaybackNetworking.createHttpClient(sourceHeaders)
-            .newBuilder()
-            .connectTimeout(3, TimeUnit.SECONDS)
-            .readTimeout(4, TimeUnit.SECONDS)
-            .callTimeout(5, TimeUnit.SECONDS)
-            .build()
-
-        val budget = RangeBudget(
-            deadlineMs = SystemClock.elapsedRealtime() + TOTAL_TIMEOUT_MS,
+        val startedAtNs = System.nanoTime()
+        val stats = RangeStats(
+            deadlineNs = System.nanoTime() + TOTAL_TIMEOUT_MS * 1_000_000L,
             maxBytes = MAX_TOTAL_DOWNLOAD_BYTES,
             maxRequests = MAX_RANGE_REQUESTS,
         )
-
         val initial = fetchRange(
-            client = client,
             sourceUrl = sourceUrl,
             sourceHeaders = sourceHeaders,
             start = 0L,
             length = INITIAL_PROBE_BYTES,
             requirePartialContent = false,
-            budget = budget,
+            stats = stats,
         ) ?: return null
 
-        val segment = findSegment(initial.bytes) ?: return null
-        val segmentDataStart = segment.dataStart.toLong()
-        val directPositions = findInitialTopLevelPositions(initial.bytes, segment)
-
-        val resolvedPositions = mutableMapOf<Long, Long>()
-        directPositions.forEach { (id, position) ->
-            resolvedPositions.putIfAbsent(id, position)
+        val segment = findSegment(initial.bytes)
+        if (segment == null) {
+            return loadMp4SampleTableIndex(
+                sourceUrl = sourceUrl,
+                sourceHeaders = sourceHeaders,
+                initial = initial,
+                stats = stats,
+                startedAtNs = startedAtNs,
+            )
         }
 
-        val queue = ArrayDeque<Long>()
-        directPositions[ID_SEEK_HEAD]?.let(queue::addLast)
-        val visited = mutableSetOf<Long>()
-        var hops = 0
+        val initialMetadata = InitialMetadata(
+            segmentDataStart = segment.dataStart.toLong(),
+            directPositions = findInitialTopLevelPositions(
+                bytes = initial.bytes,
+                segment = segment,
+            ),
+            totalLength = initial.totalLength,
+            initialBytes = initial.bytes,
+        )
+        val segmentDataStart = initialMetadata.segmentDataStart
+        val directPositions = initialMetadata.directPositions
 
-        while (queue.isNotEmpty() && hops < MAX_SEEK_HEAD_HOPS) {
-            val position = queue.removeFirst()
-            if (!visited.add(position)) continue
-            hops++
+        // Resolve SeekHead chains. SeekPosition is relative to Segment payload start.
+        val resolvedPositions = mutableMapOf<Long, Long>()
+        directPositions.forEach { (id, position) -> resolvedPositions.putIfAbsent(id, position) }
 
-            val seekHead = extractElementFromInitialProbe(
-                initialBytes = initial.bytes,
-                absolutePosition = position,
+        val seekHeadQueue = ArrayDeque<Long>()
+        directPositions[ID_SEEK_HEAD]?.let(seekHeadQueue::addLast)
+        val visitedSeekHeads = mutableSetOf<Long>()
+        var seekHeadHops = 0
+
+        while (seekHeadQueue.isNotEmpty() && seekHeadHops < MAX_SEEK_HEAD_HOPS) {
+            val seekHeadPosition = seekHeadQueue.removeFirst()
+            if (!visitedSeekHeads.add(seekHeadPosition)) continue
+            seekHeadHops++
+
+            val seekHeadBytes = extractElementFromInitialProbe(
+                initialBytes = initialMetadata.initialBytes,
+                absolutePosition = seekHeadPosition,
                 expectedId = ID_SEEK_HEAD,
                 maxElementBytes = MAX_SEEK_HEAD_BYTES,
             ) ?: fetchElementAt(
-                client = client,
                 sourceUrl = sourceUrl,
                 sourceHeaders = sourceHeaders,
-                absolutePosition = position,
+                absolutePosition = seekHeadPosition,
                 expectedId = ID_SEEK_HEAD,
                 maxElementBytes = MAX_SEEK_HEAD_BYTES,
-                budget = budget,
+                stats = stats,
             ) ?: continue
 
-            parseSeekHead(seekHead).forEach { (id, relativePosition) ->
+            parseSeekHead(seekHeadBytes).forEach { (id, relativePosition) ->
                 val absolute = segmentDataStart + relativePosition
                 if (resolvedPositions.putIfAbsent(id, absolute) == null && id == ID_SEEK_HEAD) {
-                    queue.addLast(absolute)
-                } else if (id == ID_SEEK_HEAD && absolute !in visited) {
-                    queue.addLast(absolute)
+                    seekHeadQueue.addLast(absolute)
+                } else if (id == ID_SEEK_HEAD && absolute !in visitedSeekHeads) {
+                    seekHeadQueue.addLast(absolute)
                 }
             }
         }
@@ -211,62 +259,82 @@ internal object EmbeddedSubtitleTimelineLoader {
         val timestampScaleNs = infoPosition
             ?.let { position ->
                 extractElementFromInitialProbe(
-                    initialBytes = initial.bytes,
+                    initialBytes = initialMetadata.initialBytes,
                     absolutePosition = position,
                     expectedId = ID_INFO,
                     maxElementBytes = MAX_INFO_BYTES,
                 ) ?: fetchElementAt(
-                    client = client,
                     sourceUrl = sourceUrl,
                     sourceHeaders = sourceHeaders,
                     absolutePosition = position,
                     expectedId = ID_INFO,
                     maxElementBytes = MAX_INFO_BYTES,
-                    budget = budget,
+                    stats = stats,
                 )
             }
             ?.let(::parseTimestampScaleNs)
             ?: DEFAULT_TIMESTAMP_SCALE_NS
 
         val tracksPosition = resolvedPositions[ID_TRACKS] ?: directPositions[ID_TRACKS]
-            ?: return null
-        val tracksBytes = extractElementFromInitialProbe(
-            initialBytes = initial.bytes,
-            absolutePosition = tracksPosition,
-            expectedId = ID_TRACKS,
-            maxElementBytes = MAX_TRACKS_BYTES,
-        ) ?: fetchElementAt(
-            client = client,
-            sourceUrl = sourceUrl,
-            sourceHeaders = sourceHeaders,
-            absolutePosition = tracksPosition,
-            expectedId = ID_TRACKS,
-            maxElementBytes = MAX_TRACKS_BYTES,
-            budget = budget,
-        ) ?: return null
-
-        val subtitleTracks = parseSubtitleTracks(tracksBytes)
-        if (subtitleTracks.isEmpty()) return null
-
-        val cuesPosition = resolvedPositions[ID_CUES] ?: directPositions[ID_CUES]
-        val parsedCues = if (cuesPosition != null) {
-            val cuesBytes = extractElementFromInitialProbe(
-                initialBytes = initial.bytes,
-                absolutePosition = cuesPosition,
-                expectedId = ID_CUES,
-                maxElementBytes = MAX_CUES_BYTES,
+            ?: run {
+                AutoSyncDebugLog.warn {
+                    "MKV index reject reason=tracks-position-not-found " +
+                        "requests=${stats.requests} bytes=${stats.bytesDownloaded}"
+                }
+                return null
+            }
+        val subtitleTracks = (
+            extractElementFromInitialProbe(
+                initialBytes = initialMetadata.initialBytes,
+                absolutePosition = tracksPosition,
+                expectedId = ID_TRACKS,
+                maxElementBytes = MAX_TRACKS_BYTES,
             ) ?: fetchElementAt(
-                client = client,
                 sourceUrl = sourceUrl,
                 sourceHeaders = sourceHeaders,
-                absolutePosition = cuesPosition,
-                expectedId = ID_CUES,
-                maxElementBytes = MAX_CUES_BYTES,
-                budget = budget,
+                absolutePosition = tracksPosition,
+                expectedId = ID_TRACKS,
+                maxElementBytes = MAX_TRACKS_BYTES,
+                stats = stats,
             )
-            cuesBytes?.let {
+            )?.let(::parseSubtitleTracks).orEmpty()
+        if (subtitleTracks.isEmpty()) {
+            AutoSyncDebugLog.warn {
+                "MKV index reject reason=no-subtitle-tracks tracksPosition=$tracksPosition " +
+                    "requests=${stats.requests} bytes=${stats.bytesDownloaded}"
+            }
+            return null
+        }
+
+        AutoSyncDebugLog.info {
+            "MKV index subtitleTracks=${subtitleTracks.size} " +
+                "numbers=${subtitleTracks.joinToString(",") { it.number.toString() }}"
+        }
+
+        val cuesPosition = resolvedPositions[ID_CUES] ?: directPositions[ID_CUES]
+        if (cuesPosition == null) {
+            AutoSyncDebugLog.warn {
+                "MKV index cues position unavailable; trying tail fallback"
+            }
+        }
+        val parsedCues = if (cuesPosition != null) {
+            (
+                extractElementFromInitialProbe(
+                    initialBytes = initialMetadata.initialBytes,
+                    absolutePosition = cuesPosition,
+                    expectedId = ID_CUES,
+                    maxElementBytes = MAX_CUES_BYTES,
+                ) ?: fetchElementAt(
+                    sourceUrl = sourceUrl,
+                    sourceHeaders = sourceHeaders,
+                    absolutePosition = cuesPosition,
+                    expectedId = ID_CUES,
+                    maxElementBytes = MAX_CUES_BYTES,
+                    stats = stats,
+                )
+                )?.let { cuesBytes ->
                 parseSubtitleCueTimelines(
-                    cuesElement = it,
+                    cuesElement = cuesBytes,
                     subtitleTracks = subtitleTracks,
                     timestampScaleNs = timestampScaleNs,
                 )
@@ -274,27 +342,52 @@ internal object EmbeddedSubtitleTimelineLoader {
         } else {
             null
         } ?: findAndParseCuesNearFileEnd(
-            client = client,
             sourceUrl = sourceUrl,
             sourceHeaders = sourceHeaders,
-            totalLength = initial.totalLength,
+            totalLength = initialMetadata.totalLength,
             subtitleTracks = subtitleTracks,
             timestampScaleNs = timestampScaleNs,
-            budget = budget,
-        ) ?: return null
+            stats = stats,
+        ) ?: run {
+            AutoSyncDebugLog.warn {
+                "MKV index reject reason=cues-unavailable " +
+                    "cuesPosition=${cuesPosition ?: -1L} requests=${stats.requests} " +
+                    "bytes=${stats.bytesDownloaded}"
+            }
+            return null
+        }
+
+        val subtitleCueCounts = subtitleTracks.joinToString(",") { track ->
+            "${track.number}:${parsedCues[track.number]?.cues.orEmpty().size}"
+        }
+        AutoSyncDebugLog.info {
+            "MKV index subtitleCueCounts=$subtitleCueCounts"
+        }
+
+        if (subtitleTracks.all { track -> parsedCues[track.number]?.cues.orEmpty().isEmpty() }) {
+            AutoSyncDebugLog.warn {
+                "MKV index no subtitle Cue entries; skipping Media3 wait"
+            }
+            return IndexedEmbeddedTimeline(
+                tracks = emptyList(),
+                source = "matroska-cues-no-subtitle-entries",
+                bytesDownloaded = stats.bytesDownloaded,
+                rangeRequests = stats.requests,
+                loadMs = (System.nanoTime() - startedAtNs) / 1_000_000L,
+                skipLiveFallbackWait = true,
+            )
+        }
 
         val referenceTracks = subtitleTracks.mapNotNull { track ->
-            val cues = parsedCues[track.number]
-                .orEmpty()
+            val parsedTimeline = parsedCues[track.number] ?: return@mapNotNull null
+            val cues = parsedTimeline.cues
                 .sortedBy { it.startTimeMs }
                 .distinctBy { it.startTimeMs }
-
             if (cues.size < MIN_INDEXED_CUES) return@mapNotNull null
             val spanMs = cues.last().startTimeMs - cues.first().startTimeMs
             if (spanMs < MIN_INDEXED_SPAN_MS) return@mapNotNull null
 
             var selectionFlags = 0
-            if (track.isDefault) selectionFlags = selectionFlags or C.SELECTION_FLAG_DEFAULT
             if (track.forced) selectionFlags = selectionFlags or C.SELECTION_FLAG_FORCED
 
             var roleFlags = 0
@@ -312,222 +405,605 @@ internal object EmbeddedSubtitleTimelineLoader {
                     ?: track.language?.takeIf { it.isNotBlank() },
                 cues = cues,
                 label = track.name?.takeIf { it.isNotBlank() }
-                    ?: track.codecId.takeIf { it.isNotBlank() },
+                    ?: buildFallbackTrackLabel(track),
                 selectionFlags = selectionFlags,
                 roleFlags = roleFlags,
+                generation = -1L,
+                estimatedEndStartsMs = parsedTimeline.estimatedEndStartsMs,
             )
         }
 
-        if (referenceTracks.isEmpty()) return null
+        if (referenceTracks.isEmpty()) {
+            AutoSyncDebugLog.warn {
+                "MKV index reject reason=no-usable-subtitle-cues counts=$subtitleCueCounts " +
+                    "minCues=$MIN_INDEXED_CUES minSpanMs=$MIN_INDEXED_SPAN_MS"
+            }
+            return null
+        }
 
         return IndexedEmbeddedTimeline(
             tracks = referenceTracks,
             source = "matroska-cues",
-            bytesDownloaded = budget.bytesDownloaded,
-            rangeRequests = budget.requests,
-            loadMs = SystemClock.elapsedRealtime() - startedMs,
+            bytesDownloaded = stats.bytesDownloaded,
+            rangeRequests = stats.requests,
+            loadMs = (System.nanoTime() - startedAtNs) / 1_000_000L,
         )
     }
 
-    private fun findAndParseCuesNearFileEnd(
-        client: OkHttpClient,
+    /**
+     * MP4/MOV equivalent of the Matroska Cues path. The complete subtitle timing lives in moov,
+     * so this never scans mdat or decodes media samples.
+     */
+    private suspend fun loadMp4SampleTableIndex(
+        sourceUrl: String,
+        sourceHeaders: Map<String, String>,
+        initial: RangeResponse,
+        stats: RangeStats,
+        startedAtNs: Long,
+    ): IndexedEmbeddedTimeline? {
+        val moovLocation = findMp4Moov(
+            sourceUrl = sourceUrl,
+            sourceHeaders = sourceHeaders,
+            initial = initial,
+            stats = stats,
+        ) ?: run {
+            AutoSyncDebugLog.warn {
+                "MP4 index reject reason=moov-not-found requests=${stats.requests} " +
+                    "bytes=${stats.bytesDownloaded}"
+            }
+            return null
+        }
+
+        if (moovLocation.size <= 0L || moovLocation.size > MAX_MP4_MOOV_BYTES.toLong()) {
+            AutoSyncDebugLog.warn {
+                "MP4 index reject reason=moov-size size=${moovLocation.size} " +
+                    "limit=$MAX_MP4_MOOV_BYTES position=${moovLocation.position}"
+            }
+            return null
+        }
+        if (moovLocation.size > Int.MAX_VALUE.toLong()) {
+            AutoSyncDebugLog.warn {
+                "MP4 index reject reason=moov-size-int-overflow size=${moovLocation.size}"
+            }
+            return null
+        }
+        if (moovLocation.position > Long.MAX_VALUE - moovLocation.size) {
+            AutoSyncDebugLog.warn {
+                "MP4 index reject reason=moov-position-overflow " +
+                    "position=${moovLocation.position} size=${moovLocation.size}"
+            }
+            return null
+        }
+
+        AutoSyncDebugLog.info {
+            "MP4 index moov position=${moovLocation.position} size=${moovLocation.size}"
+        }
+
+        val moovEnd = moovLocation.position + moovLocation.size
+        val moovBytes =
+            if (moovEnd <= initial.bytes.size.toLong()) {
+                initial.bytes.copyOfRange(moovLocation.position.toInt(), moovEnd.toInt())
+            } else {
+                fetchRange(
+                    sourceUrl = sourceUrl,
+                    sourceHeaders = sourceHeaders,
+                    start = moovLocation.position,
+                    length = moovLocation.size.toInt(),
+                    requirePartialContent = moovLocation.position > 0L,
+                    stats = stats,
+                    requireExactLength = true,
+                )?.bytes ?: run {
+                    AutoSyncDebugLog.warn {
+                        "MP4 index reject reason=moov-fetch-failed " +
+                            "position=${moovLocation.position} size=${moovLocation.size} " +
+                            "requests=${stats.requests} bytes=${stats.bytesDownloaded}"
+                    }
+                    return null
+                }
+            }
+
+        val moov = parseMp4MoovTextTracks(moovBytes) ?: run {
+            AutoSyncDebugLog.warn {
+                "MP4 index reject reason=moov-parse-failed size=${moovBytes.size}"
+            }
+            return null
+        }
+        if (moov.containerChildren.isEmpty()) {
+            AutoSyncDebugLog.warn {
+                "MP4 index reject reason=no-text-tracks-in-moov"
+            }
+            return null
+        }
+
+        val sampleTables = try {
+            BoxParser.parseTraks(
+                moov,
+                GaplessInfoHolder(),
+                C.TIME_UNSET,
+                null,
+                false,
+                isQuickTimeContainer(initial.bytes, sourceUrl),
+            ) { track ->
+                track?.takeIf {
+                    it.type == C.TRACK_TYPE_TEXT &&
+                        isSupportedIndexedMp4SubtitleMime(it.format.sampleMimeType)
+                }
+            }
+        } catch (error: Exception) {
+            AutoSyncDebugLog.error(error) {
+                "MP4 index reject reason=boxparser-failed"
+            }
+            return null
+        }
+
+        AutoSyncDebugLog.info {
+            "MP4 index sampleTables=${sampleTables.size}"
+        }
+
+        val referenceTracks = sampleTables.mapNotNull(::buildMp4ReferenceTrack)
+        if (referenceTracks.isEmpty()) {
+            AutoSyncDebugLog.warn {
+                "MP4 index reject reason=no-supported-reference-tracks " +
+                    "sampleTables=${sampleTables.size}"
+            }
+            return null
+        }
+
+        return IndexedEmbeddedTimeline(
+            tracks = referenceTracks,
+            source = "mp4-sample-table",
+            bytesDownloaded = stats.bytesDownloaded,
+            rangeRequests = stats.requests,
+            loadMs = (System.nanoTime() - startedAtNs) / 1_000_000L,
+        )
+    }
+
+    /** Jump over top-level boxes by declared size; a huge mdat costs only its header. */
+    private suspend fun findMp4Moov(
+        sourceUrl: String,
+        sourceHeaders: Map<String, String>,
+        initial: RangeResponse,
+        stats: RangeStats,
+    ): Mp4BoxLocation? {
+        var position = 0L
+        var boxCount = 0
+        var firstBox = true
+
+        while (boxCount++ < MAX_MP4_TOP_LEVEL_BOXES) {
+            val totalLength = initial.totalLength
+            if (totalLength != null && position >= totalLength) return null
+
+            val inInitial =
+                position >= 0L &&
+                    position <= Int.MAX_VALUE.toLong() &&
+                    position + MP4_BOX_HEADER_BYTES <= initial.bytes.size.toLong()
+
+            val headerBytes: ByteArray
+            val headerOffset: Int
+            if (inInitial) {
+                headerBytes = initial.bytes
+                headerOffset = position.toInt()
+            } else {
+                headerBytes = fetchRange(
+                    sourceUrl = sourceUrl,
+                    sourceHeaders = sourceHeaders,
+                    start = position,
+                    length = MP4_BOX_HEADER_BYTES,
+                    requirePartialContent = position > 0L,
+                    stats = stats,
+                )?.bytes ?: return null
+                headerOffset = 0
+            }
+
+            val header = readMp4BoxHeader(
+                bytes = headerBytes,
+                offset = headerOffset,
+                limit = headerBytes.size,
+                extendsToEndSize = totalLength?.minus(position)?.takeIf { it > 0L }
+                    ?: Long.MAX_VALUE,
+            ) ?: return null
+
+            if (firstBox) {
+                if (!isPlausibleMp4TopLevelType(header.type)) return null
+                firstBox = false
+            }
+
+            if (header.type == Mp4Box.TYPE_moov) {
+                return Mp4BoxLocation(position = position, size = header.size)
+            }
+            if (header.size <= 0L || position > Long.MAX_VALUE - header.size) return null
+            position += header.size
+        }
+        return null
+    }
+
+    /**
+     * Build only Media3's required moov tree and retain only text trak boxes. This avoids copying
+     * large video/audio sample tables a second time on memory-constrained TV hardware.
+     */
+    private fun parseMp4MoovTextTracks(bytes: ByteArray): Mp4Box.ContainerBox? {
+        val root = readMp4BoxHeader(
+            bytes = bytes,
+            offset = 0,
+            limit = bytes.size,
+            extendsToEndSize = bytes.size.toLong(),
+        ) ?: run {
+            AutoSyncDebugLog.warn { "MP4 moov parse reason=invalid-root-header" }
+            return null
+        }
+        if (root.type != Mp4Box.TYPE_moov || root.size != bytes.size.toLong()) {
+            AutoSyncDebugLog.warn {
+                "MP4 moov parse reason=root-mismatch type=${root.type} " +
+                    "declared=${root.size} actual=${bytes.size}"
+            }
+            return null
+        }
+
+        val rootEnd = root.size.toInt()
+        if (hasDirectMp4Child(bytes, root.headerSize, rootEnd, Mp4Box.TYPE_mvex)) {
+            AutoSyncDebugLog.warn {
+                "MP4 moov parse reason=fragmented-mp4-mvex"
+            }
+            // Fragmented MP4 needs moof/trun parsing; leave it to the existing live fallback.
+            return null
+        }
+
+        val moov = Mp4Box.ContainerBox(Mp4Box.TYPE_moov, rootEnd.toLong())
+        var position = root.headerSize
+        while (position < rootEnd) {
+            val child = readMp4BoxHeader(
+                bytes = bytes,
+                offset = position,
+                limit = rootEnd,
+                extendsToEndSize = (rootEnd - position).toLong(),
+            ) ?: run {
+                AutoSyncDebugLog.warn {
+                    "MP4 moov parse reason=invalid-child-header position=$position"
+                }
+                return null
+            }
+            val childEnd = mp4BoxEnd(position, child, rootEnd) ?: run {
+                AutoSyncDebugLog.warn {
+                    "MP4 moov parse reason=invalid-child-size position=$position " +
+                        "type=${child.type} size=${child.size}"
+                }
+                return null
+            }
+
+            when (child.type) {
+                Mp4Box.TYPE_mvhd -> addMp4Leaf(moov, bytes, position, childEnd, child.type)
+                Mp4Box.TYPE_trak -> {
+                    if (isMp4TextTrack(bytes, child.dataStart(position), childEnd)) {
+                        val parsed = parseMp4Container(bytes, position, childEnd, child)
+                            ?: run {
+                                AutoSyncDebugLog.warn {
+                                    "MP4 moov parse reason=text-trak-parse-failed " +
+                                        "position=$position size=${child.size}"
+                                }
+                                return null
+                            }
+                        moov.add(parsed)
+                    }
+                }
+            }
+            position = childEnd
+        }
+        return moov
+    }
+
+    private fun parseMp4Container(
+        bytes: ByteArray,
+        boxStart: Int,
+        boxEnd: Int,
+        header: Mp4BoxHeader,
+    ): Mp4Box.ContainerBox? {
+        val container = Mp4Box.ContainerBox(header.type, boxEnd.toLong())
+        var position = header.dataStart(boxStart)
+
+        while (position < boxEnd) {
+            val child = readMp4BoxHeader(
+                bytes = bytes,
+                offset = position,
+                limit = boxEnd,
+                extendsToEndSize = (boxEnd - position).toLong(),
+            ) ?: return null
+            val childEnd = mp4BoxEnd(position, child, boxEnd) ?: return null
+
+            if (isNeededMp4ContainerType(child.type)) {
+                val parsed = parseMp4Container(bytes, position, childEnd, child) ?: return null
+                container.add(parsed)
+            } else if (isNeededMp4LeafType(child.type)) {
+                addMp4Leaf(container, bytes, position, childEnd, child.type)
+            }
+            position = childEnd
+        }
+        return container
+    }
+
+    private fun addMp4Leaf(
+        parent: Mp4Box.ContainerBox,
+        bytes: ByteArray,
+        start: Int,
+        end: Int,
+        type: Int,
+    ) {
+        parent.add(Mp4Box.LeafBox(type, ParsableByteArray(bytes.copyOfRange(start, end))))
+    }
+
+    private fun isMp4TextTrack(bytes: ByteArray, trakDataStart: Int, trakEnd: Int): Boolean {
+        val mdia = findDirectMp4Child(bytes, trakDataStart, trakEnd, Mp4Box.TYPE_mdia)
+            ?: return false
+        val hdlr = findDirectMp4Child(bytes, mdia.dataStart, mdia.end, Mp4Box.TYPE_hdlr)
+            ?: return false
+
+        // hdlr = header + version/flags + pre_defined + handler_type.
+        val handlerOffset = hdlr.start + hdlr.headerSize + 8
+        if (handlerOffset + 4 > hdlr.end) return false
+        val handlerType = readMp4Int(bytes, handlerOffset)
+        return handlerType == 0x74657874 || // text
+            handlerType == 0x7362746c || // sbtl
+            handlerType == 0x73756274 || // subt
+            handlerType == 0x636c6370 || // clcp
+            handlerType == 0x73756270 // subp
+    }
+
+    private fun buildMp4ReferenceTrack(table: TrackSampleTable): ReferenceTrack? {
+        val format = table.track.format
+        val mimeType = format.sampleMimeType ?: return null
+        if (!isSupportedIndexedMp4SubtitleMime(mimeType)) return null
+
+        val cues = ArrayList<SubtitleSyncCue>(table.sampleCount)
+        for (index in 0 until table.sampleCount) {
+            if (isEmptyMp4SubtitleSample(mimeType, table.sizes[index])) continue
+
+            val startUs = table.timestampsUs[index]
+            if (startUs < 0L) continue
+            val nextUs = if (index + 1 < table.sampleCount) {
+                table.timestampsUs[index + 1]
+            } else {
+                table.durationUs
+            }
+            val endUs = if (nextUs == C.TIME_UNSET || nextUs <= startUs) {
+                startUs + DEFAULT_CUE_DURATION_MS * 1_000L
+            } else {
+                nextUs
+            }
+
+            val startMs = startUs / 1_000L
+            cues += SubtitleSyncCue(
+                startTimeMs = startMs,
+                endTimeMs = max(startMs + 1L, endUs / 1_000L),
+                text = "",
+            )
+        }
+
+        val normalized = cues.sortedBy { it.startTimeMs }.distinctBy { it.startTimeMs }
+        if (normalized.size < MIN_INDEXED_CUES) return null
+        if (normalized.last().startTimeMs - normalized.first().startTimeMs < MIN_INDEXED_SPAN_MS) {
+            return null
+        }
+
+        val language = format.language?.takeIf { it.isNotBlank() }
+        return ReferenceTrack(
+            key = "mp4-samples:" + table.track.id,
+            language = language,
+            cues = normalized,
+            label = format.label?.takeIf { it.isNotBlank() }
+                ?: ((language ?: "Subtitle") + " [Full]"),
+            selectionFlags = format.selectionFlags,
+            roleFlags = format.roleFlags,
+            generation = -1L,
+        )
+    }
+
+    private fun isSupportedIndexedMp4SubtitleMime(mimeType: String?): Boolean =
+        mimeType == MimeTypes.APPLICATION_TX3G || mimeType == MimeTypes.APPLICATION_MP4VTT
+
+    /** Keep gap samples as timing boundaries, but don't emit them as dialogue cues. */
+    private fun isEmptyMp4SubtitleSample(mimeType: String, sampleSize: Int): Boolean =
+        when (mimeType) {
+            MimeTypes.APPLICATION_TX3G -> sampleSize <= 2
+            MimeTypes.APPLICATION_MP4VTT -> sampleSize <= 8
+            else -> true
+        }
+
+    private fun isQuickTimeContainer(initialBytes: ByteArray, sourceUrl: String): Boolean {
+        var position = 0
+        while (position + 8 <= initialBytes.size && position < 4 * 1024) {
+            val header = readMp4BoxHeader(
+                bytes = initialBytes,
+                offset = position,
+                limit = initialBytes.size,
+                extendsToEndSize = (initialBytes.size - position).toLong(),
+            ) ?: break
+            val end = mp4BoxEnd(position, header, initialBytes.size) ?: break
+            if (header.type == 0x66747970) { // ftyp
+                var brandOffset = header.dataStart(position)
+                while (brandOffset + 4 <= end) {
+                    if (readMp4Int(initialBytes, brandOffset) == 0x71742020) return true // "qt  "
+                    brandOffset += 4
+                }
+                return false
+            }
+            position = end
+        }
+
+        val path = sourceUrl.substringBefore('?').substringBefore('#').lowercase()
+        return path.endsWith(".mov") || path.contains(".mov/")
+    }
+
+    private fun hasDirectMp4Child(bytes: ByteArray, start: Int, end: Int, type: Int): Boolean =
+        findDirectMp4Child(bytes, start, end, type) != null
+
+    private fun findDirectMp4Child(
+        bytes: ByteArray,
+        start: Int,
+        end: Int,
+        type: Int,
+    ): Mp4ChildRange? {
+        var position = start
+        while (position < end) {
+            val header = readMp4BoxHeader(
+                bytes = bytes,
+                offset = position,
+                limit = end,
+                extendsToEndSize = (end - position).toLong(),
+            ) ?: return null
+            val childEnd = mp4BoxEnd(position, header, end) ?: return null
+            if (header.type == type) {
+                return Mp4ChildRange(
+                    start = position,
+                    dataStart = header.dataStart(position),
+                    end = childEnd,
+                    headerSize = header.headerSize,
+                )
+            }
+            position = childEnd
+        }
+        return null
+    }
+
+    private fun isNeededMp4ContainerType(type: Int): Boolean =
+        type == Mp4Box.TYPE_mdia ||
+            type == Mp4Box.TYPE_minf ||
+            type == Mp4Box.TYPE_stbl ||
+            type == Mp4Box.TYPE_edts
+
+    private fun isNeededMp4LeafType(type: Int): Boolean =
+        type == Mp4Box.TYPE_tkhd ||
+            type == Mp4Box.TYPE_mdhd ||
+            type == Mp4Box.TYPE_hdlr ||
+            type == Mp4Box.TYPE_stsd ||
+            type == Mp4Box.TYPE_stts ||
+            type == Mp4Box.TYPE_ctts ||
+            type == Mp4Box.TYPE_stsc ||
+            type == Mp4Box.TYPE_stsz ||
+            type == Mp4Box.TYPE_stz2 ||
+            type == Mp4Box.TYPE_stco ||
+            type == Mp4Box.TYPE_co64 ||
+            type == Mp4Box.TYPE_stss ||
+            type == Mp4Box.TYPE_elst
+
+    private fun isPlausibleMp4TopLevelType(type: Int): Boolean =
+        type == 0x66747970 || // ftyp
+            type == Mp4Box.TYPE_moov ||
+            type == 0x6d646174 || // mdat
+            type == 0x66726565 || // free
+            type == 0x736b6970 || // skip
+            type == 0x77696465 || // wide
+            type == 0x706e6f74 || // pnot (older QuickTime)
+            type == 0x75756964 || // uuid
+            type == 0x7064696e || // pdin
+            type == 0x6d6f6f66 || // moof
+            type == 0x73696478 || // sidx
+            type == 0x73747970 // styp
+
+    private fun readMp4BoxHeader(
+        bytes: ByteArray,
+        offset: Int,
+        limit: Int,
+        extendsToEndSize: Long,
+    ): Mp4BoxHeader? {
+        if (offset < 0 || limit > bytes.size || offset + 8 > limit) return null
+
+        val size32 = readMp4UnsignedInt(bytes, offset)
+        val type = readMp4Int(bytes, offset + 4)
+        var headerSize = 8
+        val size = when (size32) {
+            0L -> extendsToEndSize
+            1L -> {
+                if (offset + 16 > limit) return null
+                headerSize = 16
+                readMp4UnsignedLong(bytes, offset + 8) ?: return null
+            }
+            else -> size32
+        }
+        if (size < headerSize.toLong()) return null
+        return Mp4BoxHeader(type = type, size = size, headerSize = headerSize)
+    }
+
+    private fun mp4BoxEnd(start: Int, header: Mp4BoxHeader, limit: Int): Int? {
+        if (header.size > Int.MAX_VALUE.toLong()) return null
+        val end = start.toLong() + header.size
+        if (end <= start.toLong() || end > limit.toLong()) return null
+        return end.toInt()
+    }
+
+    private fun readMp4UnsignedInt(bytes: ByteArray, offset: Int): Long =
+        ((bytes[offset].toLong() and 0xFFL) shl 24) or
+            ((bytes[offset + 1].toLong() and 0xFFL) shl 16) or
+            ((bytes[offset + 2].toLong() and 0xFFL) shl 8) or
+            (bytes[offset + 3].toLong() and 0xFFL)
+
+    private fun readMp4Int(bytes: ByteArray, offset: Int): Int =
+        ((bytes[offset].toInt() and 0xFF) shl 24) or
+            ((bytes[offset + 1].toInt() and 0xFF) shl 16) or
+            ((bytes[offset + 2].toInt() and 0xFF) shl 8) or
+            (bytes[offset + 3].toInt() and 0xFF)
+
+    private fun readMp4UnsignedLong(bytes: ByteArray, offset: Int): Long? {
+        if ((bytes[offset].toInt() and 0x80) != 0) return null
+        var value = 0L
+        for (index in 0 until 8) {
+            value = (value shl 8) or (bytes[offset + index].toLong() and 0xFFL)
+        }
+        return value
+    }
+
+    private suspend fun findAndParseCuesNearFileEnd(
         sourceUrl: String,
         sourceHeaders: Map<String, String>,
         totalLength: Long?,
         subtitleTracks: List<MatroskaSubtitleTrack>,
         timestampScaleNs: Long,
-        budget: RangeBudget,
-    ): Map<Int, List<SubtitleSyncCue>>? {
+        stats: RangeStats,
+    ): Map<Int, IndexedSubtitleTimeline>? {
         val fileLength = totalLength?.takeIf { it > 0L } ?: return null
         val start = max(0L, fileLength - TAIL_PROBE_BYTES)
         if (start == 0L) return null
-
-        val tailLength = (fileLength - start)
-            .coerceAtMost(TAIL_PROBE_BYTES.toLong())
-            .toInt()
-
-        val tail = fetchRange(
-            client = client,
+        val tailLength = (fileLength - start).coerceAtMost(TAIL_PROBE_BYTES.toLong()).toInt()
+        val candidates = fetchRange(
             sourceUrl = sourceUrl,
             sourceHeaders = sourceHeaders,
             start = start,
             length = tailLength,
             requirePartialContent = true,
-            budget = budget,
-        ) ?: return null
-
-        val offsets = findElementIdOffsets(tail.bytes, ID_CUES).asReversed()
-        for (relativeOffset in offsets) {
+            stats = stats,
+        )?.let { tail ->
+            findElementIdOffsets(tail.bytes, ID_CUES).asReversed()
+        } ?: return null
+        for (relativeOffset in candidates) {
+            val absolute = start + relativeOffset
             val cuesBytes = fetchElementAt(
-                client = client,
                 sourceUrl = sourceUrl,
                 sourceHeaders = sourceHeaders,
-                absolutePosition = start + relativeOffset,
+                absolutePosition = absolute,
                 expectedId = ID_CUES,
                 maxElementBytes = MAX_CUES_BYTES,
-                budget = budget,
+                stats = stats,
             ) ?: continue
-
             val parsed = parseSubtitleCueTimelines(
                 cuesElement = cuesBytes,
                 subtitleTracks = subtitleTracks,
                 timestampScaleNs = timestampScaleNs,
             )
-            if (parsed.values.any { it.size >= MIN_INDEXED_CUES }) return parsed
+            if (parsed.values.any { timeline -> timeline.cues.size >= MIN_INDEXED_CUES }) return parsed
         }
         return null
     }
 
-    private fun fetchElementAt(
-        client: OkHttpClient,
-        sourceUrl: String,
-        sourceHeaders: Map<String, String>,
-        absolutePosition: Long,
-        expectedId: Long,
-        maxElementBytes: Int,
-        budget: RangeBudget,
-    ): ByteArray? {
-        if (absolutePosition < 0L) return null
-
-        val header = fetchRange(
-            client = client,
-            sourceUrl = sourceUrl,
-            sourceHeaders = sourceHeaders,
-            start = absolutePosition,
-            length = HEADER_PROBE_BYTES,
-            requirePartialContent = absolutePosition > 0L,
-            budget = budget,
-        ) ?: return null
-
-        val element = readElement(header.bytes, 0, header.bytes.size) ?: return null
-        if (element.id != expectedId) return null
-        val dataSize = element.dataSize ?: return null
-        val totalSize = element.dataStart.toLong() + dataSize
-        if (totalSize <= 0L || totalSize > maxElementBytes.toLong()) return null
-
-        if (header.bytes.size >= totalSize.toInt()) {
-            return header.bytes.copyOfRange(0, totalSize.toInt())
-        }
-
-        return fetchRange(
-            client = client,
-            sourceUrl = sourceUrl,
-            sourceHeaders = sourceHeaders,
-            start = absolutePosition,
-            length = totalSize.toInt(),
-            requirePartialContent = absolutePosition > 0L,
-            budget = budget,
-        )?.bytes
-    }
-
-    private fun extractElementFromInitialProbe(
-        initialBytes: ByteArray,
-        absolutePosition: Long,
-        expectedId: Long,
-        maxElementBytes: Int,
-    ): ByteArray? {
-        if (absolutePosition < 0L || absolutePosition > Int.MAX_VALUE) return null
-        val position = absolutePosition.toInt()
-        if (position !in initialBytes.indices) return null
-
-        val element = readElement(initialBytes, position, initialBytes.size) ?: return null
-        if (element.id != expectedId) return null
-        val end = element.endWithin(initialBytes.size) ?: return null
-        val totalSize = end - position
-        if (totalSize <= 0 || totalSize > maxElementBytes) return null
-        return initialBytes.copyOfRange(position, end)
-    }
-
-    private fun fetchRange(
-        client: OkHttpClient,
-        sourceUrl: String,
-        sourceHeaders: Map<String, String>,
-        start: Long,
-        length: Int,
-        requirePartialContent: Boolean,
-        budget: RangeBudget,
-    ): RangeResult? {
-        if (length <= 0 || start < 0L) return null
-        if (!budget.canRequest(length)) return null
-
-        val end = start + length.toLong() - 1L
-        val builder = Request.Builder()
-            .url(sourceUrl)
-            .header("Range", "bytes=$start-$end")
-
-        var hasUserAgent = false
-        sourceHeaders.forEach { (name, value) ->
-            if (name.equals("Range", ignoreCase = true)) return@forEach
-            if (name.equals("Host", ignoreCase = true)) return@forEach
-            if (name.equals("Connection", ignoreCase = true)) return@forEach
-            if (name.equals("Content-Length", ignoreCase = true)) return@forEach
-            if (name.equals("User-Agent", ignoreCase = true)) hasUserAgent = true
-            builder.header(name, value)
-        }
-        if (!hasUserAgent) {
-            builder.header("User-Agent", PlayerMediaSourceFactory.DEFAULT_USER_AGENT)
-        }
-
-        budget.requests++
-
-        return client.newCall(builder.build()).execute().use { response ->
-            if (!response.isSuccessful) return@use null
-            if (requirePartialContent && response.code != 206) return@use null
-            if (start > 0L && response.code != 206) return@use null
-
-            val body = response.body ?: return@use null
-            val bytes = readBounded(body.byteStream(), length)
-            if (bytes.isEmpty()) return@use null
-
-            budget.bytesDownloaded += bytes.size.toLong()
-            if (budget.bytesDownloaded > budget.maxBytes) return@use null
-
-            RangeResult(
-                bytes = bytes,
-                totalLength = parseTotalLength(
-                    contentRange = response.header("Content-Range"),
-                    contentLength = response.header("Content-Length"),
-                    responseCode = response.code,
-                ),
-            )
-        }
-    }
-
-    private fun readBounded(input: InputStream, maxBytes: Int): ByteArray {
-        val output = ByteArrayOutputStream(minOf(maxBytes, 64 * 1024))
-        val buffer = ByteArray(16 * 1024)
-        var remaining = maxBytes
-
-        while (remaining > 0) {
-            val read = input.read(buffer, 0, minOf(buffer.size, remaining))
-            if (read <= 0) break
-            output.write(buffer, 0, read)
-            remaining -= read
-        }
-        return output.toByteArray()
-    }
-
-    private fun parseTotalLength(
-        contentRange: String?,
-        contentLength: String?,
-        responseCode: Int,
-    ): Long? {
-        val totalFromRange = contentRange
-            ?.substringAfter('/', "")
-            ?.takeIf { it.isNotBlank() && it != "*" }
-            ?.toLongOrNull()
-        if (totalFromRange != null) return totalFromRange
-        return if (responseCode == 200) contentLength?.toLongOrNull() else null
-    }
-
     private fun findSegment(bytes: ByteArray): EbmlElement? {
         var position = 0
-        var count = 0
-        while (position < bytes.size && count++ < 32) {
+        var elementCount = 0
+        while (position < bytes.size && elementCount++ < 32) {
             val element = readElement(bytes, position, bytes.size) ?: return null
             if (element.id == ID_SEGMENT) return element
+            if (element.id == ID_EBML) {
+                val end = element.endWithin(bytes.size) ?: return null
+                position = end
+                continue
+            }
             val end = element.endWithin(bytes.size) ?: return null
-            if (end <= position) return null
             position = end
         }
         return null
@@ -539,70 +1015,66 @@ internal object EmbeddedSubtitleTimelineLoader {
     ): Map<Long, Long> {
         val result = mutableMapOf<Long, Long>()
         var position = segment.dataStart
-        val segmentEnd = segment.endWithin(bytes.size) ?: bytes.size
-        var count = 0
-
-        while (position < segmentEnd && position < bytes.size && count++ < 128) {
-            val element = readElement(bytes, position, minOf(segmentEnd, bytes.size)) ?: break
+        var elementCount = 0
+        while (position < bytes.size && elementCount++ < 128) {
+            val element = readElement(bytes, position, bytes.size) ?: break
             when (element.id) {
                 ID_SEEK_HEAD, ID_INFO, ID_TRACKS, ID_CUES ->
                     result.putIfAbsent(element.id, position.toLong())
                 ID_CLUSTER -> break
             }
-            val end = element.endWithin(minOf(segmentEnd, bytes.size)) ?: break
-            if (end <= position) break
+            val end = element.endWithin(bytes.size) ?: break
             position = end
         }
         return result
     }
 
-    private fun parseSeekHead(bytes: ByteArray): Map<Long, Long> {
-        val root = readElement(bytes, 0, bytes.size) ?: return emptyMap()
+    private fun parseSeekHead(seekHeadElement: ByteArray): Map<Long, Long> {
+        val root = readElement(seekHeadElement, 0, seekHeadElement.size) ?: return emptyMap()
         if (root.id != ID_SEEK_HEAD) return emptyMap()
-        val rootEnd = root.endWithin(bytes.size) ?: return emptyMap()
+        val rootEnd = root.endWithin(seekHeadElement.size) ?: return emptyMap()
         val result = mutableMapOf<Long, Long>()
 
-        forEachChild(bytes, root.dataStart, rootEnd) { seek ->
+        forEachChild(seekHeadElement, root.dataStart, rootEnd) { seek ->
             if (seek.id != ID_SEEK) return@forEachChild
             val seekEnd = seek.endWithin(rootEnd) ?: return@forEachChild
             var targetId: Long? = null
             var position: Long? = null
-
-            forEachChild(bytes, seek.dataStart, seekEnd) { child ->
+            forEachChild(seekHeadElement, seek.dataStart, seekEnd) { child ->
                 when (child.id) {
-                    ID_SEEK_ID -> targetId = readBinaryId(bytes, child)
-                    ID_SEEK_POSITION -> position = readUnsigned(bytes, child)
+                    ID_SEEK_ID -> targetId = readBinaryId(seekHeadElement, child)
+                    ID_SEEK_POSITION -> position = readUnsigned(seekHeadElement, child)
                 }
             }
-
             val id = targetId
-            val pos = position
-            if (id != null && pos != null) result.putIfAbsent(id, pos)
+            val relativePosition = position
+            if (id != null && relativePosition != null) {
+                result.putIfAbsent(id, relativePosition)
+            }
         }
         return result
     }
 
-    private fun parseTimestampScaleNs(bytes: ByteArray): Long {
-        val root = readElement(bytes, 0, bytes.size) ?: return DEFAULT_TIMESTAMP_SCALE_NS
+    private fun parseTimestampScaleNs(infoElement: ByteArray): Long {
+        val root = readElement(infoElement, 0, infoElement.size) ?: return DEFAULT_TIMESTAMP_SCALE_NS
         if (root.id != ID_INFO) return DEFAULT_TIMESTAMP_SCALE_NS
-        val rootEnd = root.endWithin(bytes.size) ?: return DEFAULT_TIMESTAMP_SCALE_NS
+        val rootEnd = root.endWithin(infoElement.size) ?: return DEFAULT_TIMESTAMP_SCALE_NS
         var scale = DEFAULT_TIMESTAMP_SCALE_NS
-
-        forEachChild(bytes, root.dataStart, rootEnd) { child ->
+        forEachChild(infoElement, root.dataStart, rootEnd) { child ->
             if (child.id == ID_TIMESTAMP_SCALE) {
-                readUnsigned(bytes, child)?.takeIf { it > 0L }?.let { scale = it }
+                readUnsigned(infoElement, child)?.takeIf { it > 0L }?.let { scale = it }
             }
         }
         return scale
     }
 
-    private fun parseSubtitleTracks(bytes: ByteArray): List<MatroskaSubtitleTrack> {
-        val root = readElement(bytes, 0, bytes.size) ?: return emptyList()
+    private fun parseSubtitleTracks(tracksElement: ByteArray): List<MatroskaSubtitleTrack> {
+        val root = readElement(tracksElement, 0, tracksElement.size) ?: return emptyList()
         if (root.id != ID_TRACKS) return emptyList()
-        val rootEnd = root.endWithin(bytes.size) ?: return emptyList()
+        val rootEnd = root.endWithin(tracksElement.size) ?: return emptyList()
         val result = mutableListOf<MatroskaSubtitleTrack>()
 
-        forEachChild(bytes, root.dataStart, rootEnd) { entry ->
+        forEachChild(tracksElement, root.dataStart, rootEnd) { entry ->
             if (entry.id != ID_TRACK_ENTRY) return@forEachChild
             val entryEnd = entry.endWithin(rootEnd) ?: return@forEachChild
 
@@ -611,7 +1083,7 @@ internal object EmbeddedSubtitleTimelineLoader {
             var name: String? = null
             var language: String? = null
             var languageIetf: String? = null
-            var codecId = ""
+            var codecId: String? = null
             var isDefault = true
             var forced = false
             var hearingImpaired = false
@@ -619,20 +1091,20 @@ internal object EmbeddedSubtitleTimelineLoader {
             var textDescriptions = false
             var commentary = false
 
-            forEachChild(bytes, entry.dataStart, entryEnd) { child ->
+            forEachChild(tracksElement, entry.dataStart, entryEnd) { child ->
                 when (child.id) {
-                    ID_TRACK_NUMBER -> number = readUnsigned(bytes, child)?.toInt()
-                    ID_TRACK_TYPE -> type = readUnsigned(bytes, child)
-                    ID_FLAG_DEFAULT -> isDefault = readUnsigned(bytes, child) != 0L
-                    ID_FLAG_FORCED -> forced = readUnsigned(bytes, child) == 1L
-                    ID_FLAG_HEARING_IMPAIRED -> hearingImpaired = readUnsigned(bytes, child) == 1L
-                    ID_FLAG_VISUAL_IMPAIRED -> visualImpaired = readUnsigned(bytes, child) == 1L
-                    ID_FLAG_TEXT_DESCRIPTIONS -> textDescriptions = readUnsigned(bytes, child) == 1L
-                    ID_FLAG_COMMENTARY -> commentary = readUnsigned(bytes, child) == 1L
-                    ID_NAME -> name = readUtf8(bytes, child)
-                    ID_LANGUAGE -> language = readUtf8(bytes, child)
-                    ID_LANGUAGE_IETF -> languageIetf = readUtf8(bytes, child)
-                    ID_CODEC_ID -> codecId = readUtf8(bytes, child).orEmpty()
+                    ID_TRACK_NUMBER -> number = readUnsigned(tracksElement, child)?.toInt()
+                    ID_TRACK_TYPE -> type = readUnsigned(tracksElement, child)
+                    ID_NAME -> name = readUtf8(tracksElement, child)
+                    ID_LANGUAGE -> language = readUtf8(tracksElement, child)
+                    ID_LANGUAGE_IETF -> languageIetf = readUtf8(tracksElement, child)
+                    ID_CODEC_ID -> codecId = readUtf8(tracksElement, child)
+                    ID_FLAG_DEFAULT -> isDefault = readUnsigned(tracksElement, child) != 0L
+                    ID_FLAG_FORCED -> forced = readUnsigned(tracksElement, child) == 1L
+                    ID_FLAG_HEARING_IMPAIRED -> hearingImpaired = readUnsigned(tracksElement, child) == 1L
+                    ID_FLAG_VISUAL_IMPAIRED -> visualImpaired = readUnsigned(tracksElement, child) == 1L
+                    ID_FLAG_TEXT_DESCRIPTIONS -> textDescriptions = readUnsigned(tracksElement, child) == 1L
+                    ID_FLAG_COMMENTARY -> commentary = readUnsigned(tracksElement, child) == 1L
                 }
             }
 
@@ -653,7 +1125,6 @@ internal object EmbeddedSubtitleTimelineLoader {
                 )
             }
         }
-
         return result
     }
 
@@ -661,192 +1132,450 @@ internal object EmbeddedSubtitleTimelineLoader {
         cuesElement: ByteArray,
         subtitleTracks: List<MatroskaSubtitleTrack>,
         timestampScaleNs: Long,
-    ): Map<Int, List<SubtitleSyncCue>> {
+    ): Map<Int, IndexedSubtitleTimeline> {
         val root = readElement(cuesElement, 0, cuesElement.size) ?: return emptyMap()
         if (root.id != ID_CUES) return emptyMap()
         val rootEnd = root.endWithin(cuesElement.size) ?: return emptyMap()
+        val subtitleTrackNumbers = subtitleTracks.mapTo(mutableSetOf()) { it.number }
+        val pendingByTrack = subtitleTrackNumbers.associateWith { mutableListOf<PendingIndexedCue>() }
+            .toMutableMap()
 
-        val subtitleTrackNumbers = subtitleTracks.map { it.number }.toSet()
-        val result = mutableMapOf<Int, MutableList<SubtitleSyncCue>>()
+        forEachChild(cuesElement, root.dataStart, rootEnd) { cuePoint ->
+            if (cuePoint.id != ID_CUE_POINT) return@forEachChild
+            val pointEnd = cuePoint.endWithin(rootEnd) ?: return@forEachChild
+            var cueTimeTicks: Long? = null
+            val positions = mutableListOf<CueTrackPosition>()
 
-        forEachChild(cuesElement, root.dataStart, rootEnd) cuePointLoop@ { cuePoint ->
-            if (cuePoint.id != ID_CUE_POINT) return@cuePointLoop
-            val cuePointEnd = cuePoint.endWithin(rootEnd) ?: return@cuePointLoop
-
-            var cueTime: Long? = null
-            val trackEntries = mutableListOf<Pair<Int, Long?>>()
-
-            forEachChild(cuesElement, cuePoint.dataStart, cuePointEnd) childLoop@ { child ->
+            forEachChild(cuesElement, cuePoint.dataStart, pointEnd) { child ->
                 when (child.id) {
-                    ID_CUE_TIME -> cueTime = readUnsigned(cuesElement, child)
+                    ID_CUE_TIME -> cueTimeTicks = readUnsigned(cuesElement, child)
                     ID_CUE_TRACK_POSITIONS -> {
-                        val positionsEnd = child.endWithin(cuePointEnd) ?: return@childLoop
-                        var track: Int? = null
-                        var duration: Long? = null
-
-                        forEachChild(cuesElement, child.dataStart, positionsEnd) { positionChild ->
-                            when (positionChild.id) {
-                                ID_CUE_TRACK -> track = readUnsigned(cuesElement, positionChild)?.toInt()
-                                ID_CUE_DURATION -> duration = readUnsigned(cuesElement, positionChild)
+                        val positionEnd = child.endWithin(pointEnd)
+                        if (positionEnd != null) {
+                            var trackNumber: Int? = null
+                            var durationTicks: Long? = null
+                            forEachChild(cuesElement, child.dataStart, positionEnd) { positionChild ->
+                                when (positionChild.id) {
+                                    ID_CUE_TRACK -> trackNumber = readUnsigned(cuesElement, positionChild)?.toInt()
+                                    ID_CUE_DURATION -> durationTicks = readUnsigned(cuesElement, positionChild)
+                                }
                             }
-                        }
-
-                        val trackNumber = track
-                        if (trackNumber != null) {
-                            trackEntries += trackNumber to duration
+                            trackNumber?.let { positions += CueTrackPosition(it, durationTicks) }
                         }
                     }
                 }
             }
 
-            val rawCueTime = cueTime ?: return@cuePointLoop
-            val startMs = timecodeToMs(rawCueTime, timestampScaleNs)
-            trackEntries.forEach { (trackNumber, rawDuration) ->
-                if (trackNumber !in subtitleTrackNumbers) return@forEach
-
-                val durationMs = rawDuration
-                    ?.let { timecodeToMs(it, timestampScaleNs) }
+            val timeTicks = cueTimeTicks ?: return@forEachChild
+            val startMs = ticksToMs(timeTicks, timestampScaleNs) ?: return@forEachChild
+            positions.forEach { position ->
+                if (position.trackNumber !in subtitleTrackNumbers) return@forEach
+                val durationMs = position.durationTicks
+                    ?.let { ticksToMs(it, timestampScaleNs) }
                     ?.takeIf { it > 0L }
-                    ?: DEFAULT_CUE_DURATION_MS
-
-                result.getOrPut(trackNumber) { mutableListOf() } += SubtitleSyncCue(
-                    startTimeMs = startMs,
-                    endTimeMs = startMs + durationMs,
-                    text = "",
+                pendingByTrack[position.trackNumber]?.add(
+                    PendingIndexedCue(
+                        startTimeMs = startMs,
+                        explicitDurationMs = durationMs,
+                    ),
                 )
             }
         }
 
-        return result
+        return pendingByTrack.mapValues { (_, pending) ->
+            val sorted = pending
+                .sortedBy { it.startTimeMs }
+                .distinctBy { it.startTimeMs }
+            val estimatedEndStartsMs = HashSet<Long>()
+
+            val cues = sorted.mapIndexed { index, cue ->
+                val durationMs = cue.explicitDurationMs ?: run {
+                    estimatedEndStartsMs += cue.startTimeMs
+                    val nextStartMs = sorted.getOrNull(index + 1)?.startTimeMs
+                    if (nextStartMs != null && nextStartMs > cue.startTimeMs) {
+                        (nextStartMs - cue.startTimeMs)
+                            .coerceAtMost(MAX_MKV_INTER_CUE_ESTIMATED_DURATION_MS)
+                            .coerceAtLeast(1L)
+                    } else {
+                        LAST_MKV_CUE_ESTIMATED_DURATION_MS
+                    }
+                }
+                SubtitleSyncCue(
+                    startTimeMs = cue.startTimeMs,
+                    endTimeMs = cue.startTimeMs + durationMs,
+                    text = "",
+                )
+            }
+
+            IndexedSubtitleTimeline(
+                cues = cues,
+                estimatedEndStartsMs = estimatedEndStartsMs,
+            )
+        }
     }
 
-    private fun timecodeToMs(value: Long, timestampScaleNs: Long): Long {
-        if (value <= 0L) return 0L
-        return (value * timestampScaleNs) / 1_000_000L
+    private fun buildFallbackTrackLabel(track: MatroskaSubtitleTrack): String {
+        val language = track.languageIetf?.takeIf { it.isNotBlank() }
+            ?: track.language?.takeIf { it.isNotBlank() }
+            ?: "Subtitle"
+        val suffix = when {
+            track.commentary -> " [Commentary]"
+            track.forced -> " [Forced]"
+            track.hearingImpaired -> " [SDH]"
+            else -> " [Full]"
+        }
+        return language + suffix
+    }
+
+    private fun ticksToMs(ticks: Long, timestampScaleNs: Long): Long? {
+        if (ticks < 0L || timestampScaleNs <= 0L) return null
+        if (ticks > Long.MAX_VALUE / timestampScaleNs) {
+            return ((ticks.toDouble() * timestampScaleNs.toDouble()) / 1_000_000.0)
+                .takeIf { it.isFinite() && it >= 0.0 && it <= Long.MAX_VALUE.toDouble() }
+                ?.toLong()
+        }
+        return ticks * timestampScaleNs / 1_000_000L
+    }
+
+    /**
+     * Reuse the first 512 KiB probe whenever it already contains a complete metadata element.
+     * Matroska SeekHead/Info/Tracks are commonly near the beginning of the file, so this removes
+     * whole network round-trips without changing parsing or range-request fallback behavior.
+     */
+    private fun extractElementFromInitialProbe(
+        initialBytes: ByteArray,
+        absolutePosition: Long,
+        expectedId: Long,
+        maxElementBytes: Int,
+    ): ByteArray? {
+        if (absolutePosition < 0L || absolutePosition > Int.MAX_VALUE.toLong()) return null
+        val start = absolutePosition.toInt()
+        if (start < 0 || start >= initialBytes.size) return null
+
+        val header = readElement(initialBytes, start, initialBytes.size) ?: return null
+        if (header.id != expectedId || header.size == null) return null
+        val totalSize = header.headerSize.toLong() + header.size
+        if (totalSize <= 0L || totalSize > maxElementBytes.toLong()) return null
+
+        val end = start.toLong() + totalSize
+        if (end > initialBytes.size.toLong() || end > Int.MAX_VALUE.toLong()) return null
+        return initialBytes.copyOfRange(start, end.toInt())
+    }
+
+    private suspend fun fetchElementAt(
+        sourceUrl: String,
+        sourceHeaders: Map<String, String>,
+        absolutePosition: Long,
+        expectedId: Long,
+        maxElementBytes: Int,
+        stats: RangeStats,
+    ): ByteArray? {
+        if (absolutePosition < 0L) return null
+        val headerProbe = fetchRange(
+            sourceUrl = sourceUrl,
+            sourceHeaders = sourceHeaders,
+            start = absolutePosition,
+            length = HEADER_PROBE_BYTES,
+            requirePartialContent = absolutePosition > 0L,
+            stats = stats,
+        ) ?: return null
+        val header = readElement(headerProbe.bytes, 0, headerProbe.bytes.size) ?: return null
+        if (header.id != expectedId || header.size == null) return null
+        val totalSize = header.headerSize.toLong() + header.size
+        if (totalSize <= 0L) return null
+        if (totalSize > maxElementBytes.toLong()) {
+            if (expectedId == ID_CUES) {
+                AutoSyncDebugLog.warn {
+                    "MKV index metadata reject reason=cues-size size=$totalSize " +
+                        "limit=$maxElementBytes position=$absolutePosition"
+                }
+            } else if (expectedId == ID_TRACKS) {
+                AutoSyncDebugLog.warn {
+                    "MKV index metadata reject reason=tracks-size size=$totalSize " +
+                        "limit=$maxElementBytes position=$absolutePosition"
+                }
+            }
+            return null
+        }
+        if (totalSize > stats.remainingByteBudget()) {
+            if (expectedId == ID_CUES || expectedId == ID_TRACKS) {
+                AutoSyncDebugLog.warn {
+                    "MKV index metadata reject reason=byte-budget element=$expectedId " +
+                        "size=$totalSize remaining=${stats.remainingByteBudget()} " +
+                        "position=$absolutePosition"
+                }
+            }
+            return null
+        }
+        if (totalSize <= headerProbe.bytes.size) {
+            return if (totalSize == headerProbe.bytes.size.toLong()) {
+                headerProbe.bytes
+            } else {
+                // At most HEADER_PROBE_BYTES (64 B), so this tiny trim is intentionally harmless.
+                headerProbe.bytes.copyOf(totalSize.toInt())
+            }
+        }
+
+        // The large element is read directly into one exact-size array. Avoid ByteArrayOutputStream
+        // and a second copy, which matters for a multi-megabyte Cues index.
+        return fetchRange(
+            sourceUrl = sourceUrl,
+            sourceHeaders = sourceHeaders,
+            start = absolutePosition,
+            length = totalSize.toInt(),
+            requirePartialContent = absolutePosition > 0L,
+            stats = stats,
+            requireExactLength = true,
+        )?.bytes
+    }
+
+    private suspend fun fetchRange(
+        sourceUrl: String,
+        sourceHeaders: Map<String, String>,
+        start: Long,
+        length: Int,
+        requirePartialContent: Boolean,
+        stats: RangeStats,
+        requireExactLength: Boolean = false,
+    ): RangeResponse? {
+        if (length <= 0 || start < 0L) return null
+        if (!stats.canRequest(length)) return null
+        val end = start + length - 1L
+        if (end < start) return null
+
+        val requestBuilder = Request.Builder()
+            .url(sourceUrl)
+            .header("Range", "bytes=$start-$end")
+            .header("Accept-Encoding", "identity")
+
+        sourceHeaders.forEach { (name, value) ->
+            if (!name.equals("Range", ignoreCase = true) &&
+                !name.equals("Accept-Encoding", ignoreCase = true) &&
+                !name.equals("Content-Length", ignoreCase = true) &&
+                !name.equals("Host", ignoreCase = true)
+            ) {
+                requestBuilder.header(name, value)
+            }
+        }
+
+        val remainingBudgetMs = stats.remainingBudgetMs()
+        if (remainingBudgetMs <= 0L) return null
+
+        stats.requests++
+        val call = httpClient.newCall(requestBuilder.build())
+        call.timeout().timeout(
+            minOf(remainingBudgetMs.coerceAtLeast(1L), 5_000L),
+            TimeUnit.MILLISECONDS,
+        )
+
+        return suspendCancellableCoroutine { continuation ->
+            // OkHttp's async API lets structured coroutine cancellation interrupt DNS/connect/
+            // headers/body reads immediately instead of waiting for blocking execute() to return.
+            continuation.invokeOnCancellation {
+                call.cancel()
+            }
+
+            call.enqueue(
+                object : Callback {
+                    override fun onFailure(call: Call, error: java.io.IOException) {
+                        if (!continuation.isActive) return
+                        if (call.isCanceled()) {
+                            continuation.resumeWith(
+                                Result.failure(
+                                    CancellationException(
+                                        "Cancelled embedded index HTTP request",
+                                    ).also { it.initCause(error) },
+                                ),
+                            )
+                        } else {
+                            continuation.resumeWith(Result.failure(error))
+                        }
+                    }
+
+                    override fun onResponse(call: Call, response: Response) {
+                        if (!continuation.isActive) {
+                            response.close()
+                            return
+                        }
+
+                        try {
+                            val result = response.use { current ->
+                                if (!current.isSuccessful) return@use null
+                                if (requirePartialContent && current.code != 206) return@use null
+                                if (start > 0L && current.code != 206) return@use null
+
+                                val contentRange = parseContentRange(
+                                    current.header("Content-Range"),
+                                )
+                                if (current.code == 206) {
+                                    val parsedRange = contentRange ?: return@use null
+                                    if (parsedRange.start != start) return@use null
+                                }
+
+                                val body = current.body ?: return@use null
+                                val input = body.byteStream()
+                                val bytes = ByteArray(length)
+                                var offset = 0
+                                while (offset < length) {
+                                    if (
+                                        stats.remainingBudgetMs() <= 0L ||
+                                        stats.remainingByteBudget() <= 0L
+                                    ) {
+                                        return@use null
+                                    }
+                                    val allowedRead = minOf(
+                                        length - offset,
+                                        stats.remainingByteBudget()
+                                            .coerceAtMost(Int.MAX_VALUE.toLong())
+                                            .toInt(),
+                                    )
+                                    if (allowedRead <= 0) return@use null
+                                    val read = input.read(bytes, offset, allowedRead)
+                                    if (read < 0) break
+                                    if (read == 0) continue
+                                    offset += read
+                                    stats.bytesDownloaded += read.toLong()
+                                }
+                                if (offset == 0) return@use null
+                                if (requireExactLength && offset != length) return@use null
+
+                                val returnedBytes =
+                                    if (offset == length) bytes else bytes.copyOf(offset)
+                                val totalLength = contentRange?.total
+                                    ?: if (current.code == 200) {
+                                        current.header("Content-Length")?.toLongOrNull()
+                                    } else {
+                                        null
+                                    }
+                                RangeResponse(
+                                    bytes = returnedBytes,
+                                    totalLength = totalLength,
+                                )
+                            }
+
+                            if (continuation.isActive) {
+                                continuation.resumeWith(Result.success(result))
+                            }
+                        } catch (error: Throwable) {
+                            if (!continuation.isActive) return
+                            if (call.isCanceled() && error !is CancellationException) {
+                                continuation.resumeWith(
+                                    Result.failure(
+                                        CancellationException(
+                                            "Cancelled embedded index HTTP request",
+                                        ).also { it.initCause(error) },
+                                    ),
+                                )
+                            } else {
+                                continuation.resumeWith(Result.failure(error))
+                            }
+                        }
+                    }
+                },
+            )
+        }
+    }
+
+    private fun parseContentRange(value: String?): ContentRange? {
+        if (value.isNullOrBlank()) return null
+        val trimmed = value.trim()
+        if (!trimmed.startsWith("bytes ", ignoreCase = true)) return null
+        val rangeAndTotal = trimmed.substringAfter(' ').split('/', limit = 2)
+        if (rangeAndTotal.size != 2) return null
+        val bounds = rangeAndTotal[0].split('-', limit = 2)
+        val start = bounds.getOrNull(0)?.toLongOrNull()
+        val end = bounds.getOrNull(1)?.toLongOrNull()
+        val total = rangeAndTotal[1].takeIf { it != "*" }?.toLongOrNull()
+        if (start != null && end != null && end < start) return null
+        return ContentRange(start = start, end = end, total = total)
     }
 
     private fun findElementIdOffsets(bytes: ByteArray, id: Long): List<Int> {
-        val idBytes = encodeElementId(id)
+        val idBytes = elementIdBytes(id)
         if (idBytes.isEmpty() || bytes.size < idBytes.size) return emptyList()
-
         val result = mutableListOf<Int>()
         outer@ for (index in 0..bytes.size - idBytes.size) {
             for (offset in idBytes.indices) {
                 if (bytes[index + offset] != idBytes[offset]) continue@outer
             }
-            result += index
+            val parsed = readElement(bytes, index, bytes.size)
+            if (parsed?.id == id && parsed.size != null) result += index
         }
         return result
     }
 
-    private fun encodeElementId(id: Long): ByteArray {
-        val length = when {
-            id <= 0xFFL -> 1
-            id <= 0xFFFFL -> 2
-            id <= 0xFFFFFFL -> 3
-            id <= 0xFFFFFFFFL -> 4
-            else -> return ByteArray(0)
-        }
+    private fun elementIdBytes(id: Long): ByteArray {
+        var length = 1
+        while (length < 8 && id >= (1L shl (length * 8))) length++
         return ByteArray(length) { index ->
-            val shift = (length - index - 1) * 8
-            ((id shr shift) and 0xFFL).toByte()
+            ((id shr ((length - index - 1) * 8)) and 0xFF).toByte()
         }
     }
 
     private fun forEachChild(
         bytes: ByteArray,
         start: Int,
-        end: Int,
-        block: (EbmlElement) -> Unit,
+        endExclusive: Int,
+        action: (EbmlElement) -> Unit,
     ) {
         var position = start
         var count = 0
-        while (position < end && count++ < 100_000) {
-            val element = readElement(bytes, position, end) ?: break
-            block(element)
-            val next = element.endWithin(end) ?: break
-            if (next <= position) break
-            position = next
+        while (position < endExclusive && count++ < 1_000_000) {
+            val child = readElement(bytes, position, endExclusive) ?: break
+            val end = child.endWithin(endExclusive) ?: break
+            action(child)
+            if (end <= position) break
+            position = end
         }
     }
 
-    private fun readElement(
-        bytes: ByteArray,
-        position: Int,
-        limit: Int,
-    ): EbmlElement? {
-        val id = readVint(bytes, position, limit, removeMarker = false, maxLength = 4)
-            ?: return null
-        val size = readVint(
-            bytes = bytes,
-            position = position + id.length,
-            limit = limit,
-            removeMarker = true,
-            maxLength = 8,
-        ) ?: return null
+    private fun readElement(bytes: ByteArray, offset: Int, limit: Int): EbmlElement? {
+        if (offset < 0 || offset >= limit || limit > bytes.size) return null
+        val idLength = vintLength(bytes[offset].toInt() and 0xFF) ?: return null
+        if (idLength > 4 || offset + idLength >= limit) return null
 
-        val dataStart = position + id.length + size.length
-        if (dataStart > limit) return null
+        var id = 0L
+        for (index in 0 until idLength) {
+            id = (id shl 8) or (bytes[offset + index].toLong() and 0xFFL)
+        }
 
+        val sizeOffset = offset + idLength
+        val sizeLength = vintLength(bytes[sizeOffset].toInt() and 0xFF) ?: return null
+        if (sizeLength > 8 || sizeOffset + sizeLength > limit) return null
+        val markerMask = 1 shl (8 - sizeLength)
+        var sizeValue = (bytes[sizeOffset].toInt() and (markerMask - 1)).toLong()
+        for (index in 1 until sizeLength) {
+            sizeValue = (sizeValue shl 8) or (bytes[sizeOffset + index].toLong() and 0xFFL)
+        }
+        val unknownValue = (1L shl (7 * sizeLength)) - 1L
+        val size = if (sizeValue == unknownValue) null else sizeValue
+        val dataStart = sizeOffset + sizeLength
         return EbmlElement(
-            id = id.value,
+            id = id,
+            size = size,
+            headerStart = offset,
             dataStart = dataStart,
-            dataSize = if (size.unknown) null else size.value,
+            headerSize = dataStart - offset,
         )
     }
 
-    private fun readVint(
-        bytes: ByteArray,
-        position: Int,
-        limit: Int,
-        removeMarker: Boolean,
-        maxLength: Int,
-    ): Vint? {
-        if (position !in 0 until limit || position >= bytes.size) return null
-        val first = bytes[position].toInt() and 0xFF
-        if (first == 0) return null
-
-        var marker = 0x80
+    private fun vintLength(firstByte: Int): Int? {
+        if (firstByte == 0) return null
+        var mask = 0x80
         var length = 1
-        while (length <= 8 && first and marker == 0) {
-            marker = marker ushr 1
+        while ((firstByte and mask) == 0) {
+            mask = mask ushr 1
             length++
+            if (length > 8) return null
         }
-        if (length > maxLength || position + length > limit || position + length > bytes.size) {
-            return null
-        }
-
-        var value = if (removeMarker) {
-            (first and (marker - 1)).toLong()
-        } else {
-            first.toLong()
-        }
-
-        for (index in 1 until length) {
-            value = (value shl 8) or (bytes[position + index].toLong() and 0xFFL)
-        }
-
-        val unknown = if (removeMarker) {
-            val valueBits = 7 * length
-            val maxValue = (1L shl valueBits) - 1L
-            value == maxValue
-        } else {
-            false
-        }
-
-        return Vint(
-            value = value,
-            length = length,
-            unknown = unknown,
-        )
+        return length
     }
 
     private fun readUnsigned(bytes: ByteArray, element: EbmlElement): Long? {
-        val size = element.dataSize ?: return null
-        if (size <= 0L || size > 8L) return null
+        val size = element.size ?: return null
+        if (size !in 1L..8L) return null
         val end = element.dataStart + size.toInt()
         if (end > bytes.size) return null
-
         var value = 0L
         for (index in element.dataStart until end) {
             value = (value shl 8) or (bytes[index].toLong() and 0xFFL)
@@ -855,11 +1584,10 @@ internal object EmbeddedSubtitleTimelineLoader {
     }
 
     private fun readBinaryId(bytes: ByteArray, element: EbmlElement): Long? {
-        val size = element.dataSize ?: return null
-        if (size <= 0L || size > 4L) return null
+        val size = element.size ?: return null
+        if (size !in 1L..4L) return null
         val end = element.dataStart + size.toInt()
         if (end > bytes.size) return null
-
         var value = 0L
         for (index in element.dataStart until end) {
             value = (value shl 8) or (bytes[index].toLong() and 0xFFL)
@@ -868,39 +1596,92 @@ internal object EmbeddedSubtitleTimelineLoader {
     }
 
     private fun readUtf8(bytes: ByteArray, element: EbmlElement): String? {
-        val size = element.dataSize ?: return null
+        val size = element.size ?: return null
         if (size < 0L || size > Int.MAX_VALUE) return null
         val end = element.dataStart + size.toInt()
         if (end > bytes.size) return null
         return bytes.copyOfRange(element.dataStart, end)
             .toString(Charsets.UTF_8)
             .trimEnd('\u0000')
-            .trim()
     }
+
+    private data class Mp4BoxLocation(
+        val position: Long,
+        val size: Long,
+    )
+
+    private data class Mp4BoxHeader(
+        val type: Int,
+        val size: Long,
+        val headerSize: Int,
+    ) {
+        fun dataStart(boxStart: Int): Int = boxStart + headerSize
+    }
+
+    private data class Mp4ChildRange(
+        val start: Int,
+        val dataStart: Int,
+        val end: Int,
+        val headerSize: Int,
+    )
 
     private data class CachedLoadResult(
         val timeline: IndexedEmbeddedTimeline?,
-        val createdAtMs: Long,
+        val createdAtNs: Long,
     )
 
-    private data class RangeResult(
+    private data class RangeResponse(
         val bytes: ByteArray,
         val totalLength: Long?,
     )
 
-    private class RangeBudget(
-        val deadlineMs: Long,
+    private data class RangeStats(
+        var requests: Int = 0,
+        var bytesDownloaded: Long = 0L,
+        val deadlineNs: Long,
         val maxBytes: Long,
         val maxRequests: Int,
     ) {
-        var requests: Int = 0
-        var bytesDownloaded: Long = 0L
+        fun remainingBudgetMs(): Long =
+            ((deadlineNs - System.nanoTime()) / 1_000_000L).coerceAtLeast(0L)
 
-        fun canRequest(length: Int): Boolean {
-            if (SystemClock.elapsedRealtime() >= deadlineMs) return false
-            if (requests >= maxRequests) return false
-            if (bytesDownloaded >= maxBytes) return false
-            return length.toLong() <= maxBytes - bytesDownloaded
+        fun remainingByteBudget(): Long =
+            (maxBytes - bytesDownloaded).coerceAtLeast(0L)
+
+        fun canRequest(length: Int): Boolean =
+            length > 0 &&
+                requests < maxRequests &&
+                length.toLong() <= remainingByteBudget() &&
+                remainingBudgetMs() > 0L
+    }
+
+
+    private data class ContentRange(
+        val start: Long?,
+        val end: Long?,
+        val total: Long?,
+    )
+
+    private data class InitialMetadata(
+        val segmentDataStart: Long,
+        val directPositions: Map<Long, Long>,
+        val totalLength: Long?,
+        val initialBytes: ByteArray,
+    )
+
+    private data class EbmlElement(
+        val id: Long,
+        val size: Long?,
+        val headerStart: Int,
+        val dataStart: Int,
+        val headerSize: Int,
+    ) {
+        fun endWithin(limit: Int): Int? {
+            val contentSize = size ?: return null
+            if (contentSize < 0L || contentSize > Int.MAX_VALUE) return null
+            val end = dataStart.toLong() + contentSize
+            if (end > limit.toLong()) return null
+            return end.toInt()
         }
     }
 
@@ -909,7 +1690,7 @@ internal object EmbeddedSubtitleTimelineLoader {
         val name: String?,
         val language: String?,
         val languageIetf: String?,
-        val codecId: String,
+        val codecId: String?,
         val isDefault: Boolean,
         val forced: Boolean,
         val hearingImpaired: Boolean,
@@ -918,23 +1699,27 @@ internal object EmbeddedSubtitleTimelineLoader {
         val commentary: Boolean,
     )
 
-    private data class EbmlElement(
-        val id: Long,
-        val dataStart: Int,
-        val dataSize: Long?,
-    ) {
-        fun endWithin(limit: Int): Int? {
-            val size = dataSize ?: return null
-            if (size < 0L || size > Int.MAX_VALUE) return null
-            val end = dataStart.toLong() + size
-            if (end > limit.toLong() || end > Int.MAX_VALUE.toLong()) return null
-            return end.toInt()
-        }
-    }
+    private data class CueTrackPosition(
+        val trackNumber: Int,
+        val durationTicks: Long?,
+    )
 
-    private data class Vint(
-        val value: Long,
-        val length: Int,
-        val unknown: Boolean,
+    private data class PendingIndexedCue(
+        val startTimeMs: Long,
+        val explicitDurationMs: Long?,
+    )
+
+    private data class IndexedSubtitleTimeline(
+        val cues: List<SubtitleSyncCue>,
+        val estimatedEndStartsMs: Set<Long>,
     )
 }
+
+internal data class IndexedEmbeddedTimeline(
+    val tracks: List<ReferenceTrack>,
+    val source: String,
+    val bytesDownloaded: Long,
+    val rangeRequests: Int,
+    val loadMs: Long,
+    val skipLiveFallbackWait: Boolean = false,
+)
