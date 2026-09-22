@@ -4,6 +4,7 @@ import android.view.KeyEvent as AndroidKeyEvent
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.BorderStroke
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.first
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.Canvas
@@ -33,6 +34,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -160,10 +162,9 @@ fun SeasonTabs(
     LaunchedEffect(sortedSeasons, selectedSeason) {
         val selectedIndex = sortedSeasons.indexOf(selectedSeason)
         if (selectedIndex < 0) return@LaunchedEffect
-
-        val visibleIndices = lazyListState.layoutInfo.visibleItemsInfo.map { it.index }
-        if (selectedIndex in visibleIndices) return@LaunchedEffect
-
+        snapshotFlow { lazyListState.layoutInfo.visibleItemsInfo.map { it.index } }
+            .first { it.isNotEmpty() }
+        if (selectedIndex in lazyListState.layoutInfo.visibleItemsInfo.map { it.index }) return@LaunchedEffect
         suppressFocusSwitch = true
         lazyListState.scrollToItem(selectedIndex)
         suppressFocusSwitch = false
@@ -293,7 +294,8 @@ fun EpisodesRow(
     onRestoreFocusHandled: () -> Unit = {},
     onEpisodeFocused: (episodeId: String) -> Unit = {},
     scrollToEpisodeId: String? = null,
-    onScrollToEpisodeHandled: () -> Unit = {}
+    onScrollToEpisodeHandled: () -> Unit = {},
+    anchorEpisodeId: String? = null
 ) {
     val dedupedEpisodes = remember(episodes) { episodes.distinctBy { it.id } }
     val restoreTargetRequester = restoreEpisodeId?.let { episodeFocusRequesters[it] }
@@ -302,8 +304,8 @@ fun EpisodesRow(
     val cardMetrics = rememberEpisodeCardMetrics(posterCardCornerRadiusDp)
     val density = LocalDensity.current
     val rowPrefetchStrategy = remember { LazyListPrefetchStrategy(nestedPrefetchItemCount = 2) }
-    val initialEpisodeIndex = remember(dedupedEpisodes, restoreEpisodeId, scrollToEpisodeId) {
-        val initialEpisodeId = restoreEpisodeId ?: scrollToEpisodeId
+    val initialEpisodeIndex = remember(dedupedEpisodes, restoreEpisodeId, scrollToEpisodeId, anchorEpisodeId) {
+        val initialEpisodeId = restoreEpisodeId ?: scrollToEpisodeId ?: anchorEpisodeId
         val targetIndex = dedupedEpisodes.indexOfFirst { it.id == initialEpisodeId }
         if (restoreEpisodeId != null) {
             (targetIndex - 1).coerceAtLeast(0)
@@ -349,6 +351,27 @@ fun EpisodesRow(
         val offsetPx = with(density) { (cardMetrics.cardWidth * 2f / 3f - cardMetrics.itemSpacing).roundToPx() }
         lazyListState.scrollToItem(index, scrollOffset = -offsetPx)
         onScrollToEpisodeHandled()
+    }
+
+    var anchorPlaced by remember { mutableStateOf(false) }
+    LaunchedEffect(dedupedEpisodes) {
+        if (anchorPlaced) return@LaunchedEffect
+        if (!restoreEpisodeId.isNullOrBlank() || !scrollToEpisodeId.isNullOrBlank()) {
+            anchorPlaced = true
+            return@LaunchedEffect
+        }
+        val anchor = anchorEpisodeId ?: run {
+            anchorPlaced = true
+            return@LaunchedEffect
+        }
+        val index = dedupedEpisodes.indexOfFirst { it.id == anchor }
+        if (index < 0) return@LaunchedEffect
+        snapshotFlow { lazyListState.layoutInfo.visibleItemsInfo.map { it.index } }
+            .first { it.isNotEmpty() }
+        if (index !in lazyListState.layoutInfo.visibleItemsInfo.map { it.index }) {
+            lazyListState.scrollToItem(index)
+        }
+        anchorPlaced = true
     }
 
     LazyRow(

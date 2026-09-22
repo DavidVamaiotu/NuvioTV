@@ -2309,7 +2309,8 @@ private fun MetaDetailsContent(
                             } else null,
                             onScrollToEpisodeHandled = {
                                 initialEpisodeScrollDone = true
-                            }
+                            },
+                            anchorEpisodeId = lastFocusedEpisodeIdBySeason[selectedSeason]
                         )
                     }
             }
