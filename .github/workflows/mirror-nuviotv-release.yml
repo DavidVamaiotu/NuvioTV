@@ -302,12 +302,27 @@ jobs:
             OLD_VERSION="$(printf '%s\n' "$OLD_BADGING" | sed -n "s/.*versionCode='\([^']*\)'.*/\1/p")"
             echo "Previous APK identity: package=$OLD_PACKAGE versionCode=$OLD_VERSION"
 
-            NEW_CERT="$("$APKSIGNER" verify --print-certs "$NEW_APK" | sed -n 's/^Signer #1 certificate SHA-256 digest: //p' | head -n 1)"
-            OLD_CERT="$("$APKSIGNER" verify --print-certs "$PREVIOUS_APK" | sed -n 's/^Signer #1 certificate SHA-256 digest: //p' | head -n 1)"
+            read_cert_digest() {
+              local apk="$1"
+              "$APKSIGNER" verify --print-certs "$apk" 2>&1 |
+                sed -nE 's/.*certificate SHA-256 digest:[[:space:]]*([^[:space:]]+).*/\1/p' |
+                head -n 1
+            }
+
+            NEW_CERT="$(read_cert_digest "$NEW_APK")"
+            OLD_CERT="$(read_cert_digest "$PREVIOUS_APK")"
+
+            if [[ -z "$NEW_CERT" || -z "$OLD_CERT" ]]; then
+              echo "Could not read APK signing certificate digest." >&2
+              echo "New APK certificate output:" >&2
+              "$APKSIGNER" verify --print-certs "$NEW_APK" >&2 || true
+              echo "Previous APK certificate output:" >&2
+              "$APKSIGNER" verify --print-certs "$PREVIOUS_APK" >&2 || true
+              exit 1
+            fi
 
             echo "Signing certificate unchanged: $([[ "$OLD_CERT" = "$NEW_CERT" ]] && echo yes || echo no)"
             test "$OLD_PACKAGE" = "$NEW_PACKAGE"
-            test -n "$NEW_CERT"
             test "$OLD_CERT" = "$NEW_CERT"
             (( NEW_VERSION > OLD_VERSION ))
           fi
