@@ -147,6 +147,15 @@ jobs:
             gh release create "${CREATE_ARGS[@]}"
           fi
 
+      - name: Verify GitHub release ordering
+        if: steps.upstream.outputs.should_release == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh release list --repo "$GITHUB_REPOSITORY" --limit 15 --order desc \
+            --json tagName,createdAt,publishedAt,isLatest,isPrerelease
+
       - name: Fetch official NuvioTV release
         if: steps.upstream.outputs.should_release == 'true' && steps.upstream.outputs.needs_sync == 'true'
         env:
