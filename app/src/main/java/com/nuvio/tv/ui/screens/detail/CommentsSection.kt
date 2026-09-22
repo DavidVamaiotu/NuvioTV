@@ -145,13 +145,16 @@ fun CommentsSection(
             .mapNotNull { info -> comments.getOrNull(info.index)?.id }
             .toSet()
     }
+    val hasFocusableCommentContent = isLoading || !error.isNullOrBlank() || comments.isNotEmpty()
     val commentsTargetFocusRequester = remember(
         comments,
         lastFocusedCommentId,
         controlsFocusRequester,
         visibleFirstCommentId,
-        visibleWindowCommentIds
+        visibleWindowCommentIds,
+        hasFocusableCommentContent
     ) {
+        if (!hasFocusableCommentContent) return@remember null
         val targetId = when {
             lastFocusedCommentId != null && lastFocusedCommentId in visibleWindowCommentIds -> lastFocusedCommentId
             visibleFirstCommentId != null -> visibleFirstCommentId
@@ -310,7 +313,9 @@ fun CommentsSection(
                 LazyRow(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .focusRestorer(commentsTargetFocusRequester),
+                        .then(
+                            commentsTargetFocusRequester?.let { Modifier.focusRestorer(it) } ?: Modifier
+                        ),
                     contentPadding = PaddingValues(horizontal = NuvioTheme.spacing.xxxl, vertical = 6.dp),
                     horizontalArrangement = Arrangement.spacedBy(NuvioTheme.spacing.md)
                 ) {
@@ -387,7 +392,9 @@ fun CommentsSection(
                 LazyRow(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .focusRestorer(commentsTargetFocusRequester),
+                        .then(
+                            commentsTargetFocusRequester?.let { Modifier.focusRestorer(it) } ?: Modifier
+                        ),
                     state = listState,
                     contentPadding = PaddingValues(horizontal = NuvioTheme.spacing.xxxl, vertical = 6.dp),
                     horizontalArrangement = Arrangement.spacedBy(NuvioTheme.spacing.md)
