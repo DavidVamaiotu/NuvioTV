@@ -96,6 +96,24 @@ jobs:
             echo "Legacy release ordering already normalized."
           fi
 
+          # GitHub can retain the old release-list position after a tag is moved.
+          # Re-publish only when the API still shows .10 below .9 even though its
+          # created_at is newer. This keeps assets intact and does not change Latest.
+          RELEASES_JSON="$(gh api "repos/$GITHUB_REPOSITORY/releases?per_page=20")"
+          INDEX_10="$(printf '%s' "$RELEASES_JSON" | jq -r 'to_entries[] | select(.value.tag_name=="1.0.0-autosync.10") | .key')"
+          INDEX_9="$(printf '%s' "$RELEASES_JSON" | jq -r 'to_entries[] | select(.value.tag_name=="1.0.0-autosync.9") | .key')"
+          CREATED_10="$(printf '%s' "$RELEASES_JSON" | jq -r '.[] | select(.tag_name=="1.0.0-autosync.10") | .created_at')"
+          CREATED_9="$(printf '%s' "$RELEASES_JSON" | jq -r '.[] | select(.tag_name=="1.0.0-autosync.9") | .created_at')"
+
+          if [[ -n "$INDEX_10" && -n "$INDEX_9" && -n "$CREATED_10" && -n "$CREATED_9" ]] &&
+             (( INDEX_10 > INDEX_9 )) &&
+             [[ "$CREATED_10" > "$CREATED_9" ]]; then
+            RELEASE_ID="$(printf '%s' "$RELEASES_JSON" | jq -r '.[] | select(.tag_name=="1.0.0-autosync.10") | .id')"
+            echo "Refreshing $NEWER_TAG release index without changing its assets or Latest status."
+            gh api --method PATCH "repos/$GITHUB_REPOSITORY/releases/$RELEASE_ID" -F prerelease=true -f make_latest=false >/dev/null
+            gh api --method PATCH "repos/$GITHUB_REPOSITORY/releases/$RELEASE_ID" -F prerelease=false -f make_latest=false >/dev/null
+          fi
+
       - name: Fetch official NuvioTV release
         if: steps.upstream.outputs.should_release == 'true' && steps.upstream.outputs.needs_sync == 'true'
         env:
