@@ -2322,6 +2322,7 @@ private fun MetaDetailsContent(
                         PeopleSectionTabs(
                             activeTab = activePeopleTab,
                             tabs = visiblePeopleTabItems,
+                            tabsCanFocus = pendingRestoreType != RestoreTarget.COMPANY_OR_NETWORK,
                             upFocusRequester = seasonDownFocusRequester ?: heroPlayFocusRequester,
                             ratingsDownFocusRequester = ratingsContentFocusRequester,
                             onTabFocused = { tab ->
@@ -2329,6 +2330,7 @@ private fun MetaDetailsContent(
                                     RestoreTarget.MORE_LIKE_THIS -> PeopleSectionTab.MORE_LIKE_THIS
                                     RestoreTarget.COLLECTION -> PeopleSectionTab.COLLECTION
                                     RestoreTarget.CAST_MEMBER -> PeopleSectionTab.CAST
+                                    RestoreTarget.COMPANY_OR_NETWORK -> activePeopleTab
                                     else -> null
                                 }
                                 if (lockedTab == null || tab == lockedTab) {
@@ -2844,6 +2846,7 @@ private fun BackdropLayer(
 private fun PeopleSectionTabs(
     activeTab: PeopleSectionTab,
     tabs: List<PeopleTabItem>,
+    tabsCanFocus: Boolean = true,
     upFocusRequester: FocusRequester? = null,
     ratingsDownFocusRequester: FocusRequester? = null,
     onTabFocused: (PeopleSectionTab) -> Unit
@@ -2872,6 +2875,7 @@ private fun PeopleSectionTabs(
                 PeopleSectionTabButton(
                     label = item.label,
                     selected = activeTab == item.tab,
+                    canFocus = tabsCanFocus,
                     focusRequester = item.focusRequester,
                     activeFocusRequester = if (activeTab != item.tab) restorerRequester else null,
                     upFocusRequester = upFocusRequester,
@@ -2894,6 +2898,7 @@ private fun PeopleSectionTabs(
 private fun PeopleSectionTabButton(
     label: String,
     selected: Boolean,
+    canFocus: Boolean = true,
     focusRequester: FocusRequester,
     activeFocusRequester: FocusRequester? = null,
     upFocusRequester: FocusRequester? = null,
@@ -2913,6 +2918,7 @@ private fun PeopleSectionTabButton(
         modifier = Modifier
             .focusRequester(focusRequester)
             .focusProperties {
+                this.canFocus = canFocus
                 if (upFocusRequester != null) {
                     up = upFocusRequester
                 }
