@@ -29,6 +29,11 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.input.key.Key
+import androidx.compose.ui.input.key.KeyEventType
+import androidx.compose.ui.input.key.key
+import androidx.compose.ui.input.key.onPreviewKeyEvent
+import androidx.compose.ui.input.key.type
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.Color
@@ -62,7 +67,8 @@ fun CompanyLogosSection(
     restoreCompanyId: Int? = null,
     restoreFocusToken: Int = 0,
     onRestoreFocusHandled: () -> Unit = {},
-    onCompanyFocused: (revealOverflowPx: Float) -> Unit = {}
+    onCompanyFocused: (revealOverflowPx: Float) -> Unit = {},
+    upFocusRequester: FocusRequester? = null
 ) {
     if (companies.isEmpty()) return
 
@@ -140,6 +146,7 @@ fun CompanyLogosSection(
                     CompanyLogoCard(
                         company = company,
                         focusRequester = focusRequesters[company.tmdbId],
+                        upFocusRequester = upFocusRequester,
                         onFocused = {
                             onCompanyFocused(if (suppressRestoreScroll) 0f else revealOverflowPx)
                         },
@@ -155,6 +162,7 @@ fun CompanyLogosSection(
 private fun CompanyLogoCard(
     company: MetaCompany,
     focusRequester: FocusRequester? = null,
+    upFocusRequester: FocusRequester? = null,
     onFocused: () -> Unit = {},
     onClick: () -> Unit
 ) {
@@ -185,6 +193,17 @@ private fun CompanyLogoCard(
             .then(
                 if (focusRequester != null) Modifier.focusRequester(focusRequester) else Modifier
             )
+            .onPreviewKeyEvent { event ->
+                if (
+                    upFocusRequester != null &&
+                    event.type == KeyEventType.KeyDown &&
+                    event.key == Key.DirectionUp
+                ) {
+                    upFocusRequester.requestFocus()
+                } else {
+                    false
+                }
+            }
             .onFocusChanged { state ->
                 if (state.isFocused) onFocused()
             },

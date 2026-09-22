@@ -1246,6 +1246,7 @@ private fun MetaDetailsContent(
     val castRowListState = rememberLazyListState(prefetchStrategy = nestedPrefetchStrategy)
     val moreLikeThisListState = rememberLazyListState(prefetchStrategy = nestedPrefetchStrategy)
     val collectionListState = rememberLazyListState(prefetchStrategy = nestedPrefetchStrategy)
+    val commentsListState = rememberLazyListState(prefetchStrategy = nestedPrefetchStrategy)
     var lastFocusedCastKey by rememberSaveable(meta.id) { mutableStateOf<String?>(null) }
     var lastFocusedMoreLikeItemId by rememberSaveable(meta.id) { mutableStateOf<String?>(null) }
     var lastFocusedCollectionItemId by rememberSaveable(meta.id) { mutableStateOf<String?>(null) }
@@ -1275,6 +1276,7 @@ private fun MetaDetailsContent(
     val collectionSectionFocusRequester = remember { FocusRequester() }
     val commentsTitleModeFocusRequester = remember { FocusRequester() }
     val commentsEpisodeModeFocusRequester = remember { FocusRequester() }
+    val commentsRowEntryFocusRequester = remember { FocusRequester() }
     var pendingRestoreType by rememberSaveable { mutableStateOf<RestoreTarget?>(null) }
     var pendingRestoreEpisodeId by rememberSaveable { mutableStateOf<String?>(null) }
     var pendingRestoreCastPersonId by rememberSaveable { mutableStateOf<Int?>(null) }
@@ -1545,6 +1547,11 @@ private fun MetaDetailsContent(
             collectionListState.firstVisibleItemScrollOffset != 0
         ) {
             collectionListState.scrollToItem(0)
+        }
+        if (commentsListState.firstVisibleItemIndex != 0 ||
+            commentsListState.firstVisibleItemScrollOffset != 0
+        ) {
+            commentsListState.scrollToItem(0)
         }
     }
 
@@ -2556,6 +2563,8 @@ private fun MetaDetailsContent(
                         onCommentsModeSelected = onCommentsModeSelected,
                         onEpisodeSelected = onCommentsEpisodeSelected,
                         onCommentClick = onCommentClick,
+                        listState = commentsListState,
+                        rowEntryFocusRequester = commentsRowEntryFocusRequester,
                         modifier = Modifier
                     )
                 }
@@ -2571,6 +2580,7 @@ private fun MetaDetailsContent(
                             restoreFocusToken = if (pendingRestoreType == RestoreTarget.COMPANY_OR_NETWORK) restoreFocusToken else 0,
                             onRestoreFocusHandled = { clearPendingRestore() },
                             onCompanyFocused = { overflow -> onCompanyRowFocused(overflow) },
+                            upFocusRequester = if (shouldShowCommentsSection) commentsRowEntryFocusRequester else null,
                             onCompanyClick = { company ->
                                 company.tmdbId?.let { entityId ->
                                     markCompanyRestore(entityId)
@@ -2590,6 +2600,7 @@ private fun MetaDetailsContent(
                             restoreFocusToken = if (pendingRestoreType == RestoreTarget.COMPANY_OR_NETWORK) restoreFocusToken else 0,
                             onRestoreFocusHandled = { clearPendingRestore() },
                             onCompanyFocused = { overflow -> onCompanyRowFocused(overflow) },
+                            upFocusRequester = if (shouldShowCommentsSection && meta.networks.isEmpty()) commentsRowEntryFocusRequester else null,
                             onCompanyClick = { company ->
                                 company.tmdbId?.let { entityId ->
                                     markCompanyRestore(entityId)
@@ -2609,6 +2620,7 @@ private fun MetaDetailsContent(
                             restoreFocusToken = if (pendingRestoreType == RestoreTarget.COMPANY_OR_NETWORK) restoreFocusToken else 0,
                             onRestoreFocusHandled = { clearPendingRestore() },
                             onCompanyFocused = { overflow -> onCompanyRowFocused(overflow) },
+                            upFocusRequester = if (shouldShowCommentsSection) commentsRowEntryFocusRequester else null,
                             onCompanyClick = { company ->
                                 company.tmdbId?.let { entityId ->
                                     markCompanyRestore(entityId)
@@ -2628,6 +2640,7 @@ private fun MetaDetailsContent(
                             restoreFocusToken = if (pendingRestoreType == RestoreTarget.COMPANY_OR_NETWORK) restoreFocusToken else 0,
                             onRestoreFocusHandled = { clearPendingRestore() },
                             onCompanyFocused = { overflow -> onCompanyRowFocused(overflow) },
+                            upFocusRequester = if (shouldShowCommentsSection && meta.productionCompanies.isEmpty()) commentsRowEntryFocusRequester else null,
                             onCompanyClick = { company ->
                                 company.tmdbId?.let { entityId ->
                                     markCompanyRestore(entityId)
