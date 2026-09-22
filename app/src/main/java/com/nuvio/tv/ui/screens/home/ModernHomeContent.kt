@@ -380,6 +380,12 @@ fun ModernHomeContent(
             )
             if (relocatedIndex != null && relocatedIndex != storedIndex) {
                 focusedItemByRow[rowKey] = relocatedIndex
+                // The hero reads its own index, synced by an effect keyed on the row size, so it
+                // would land a frame late and show whatever took the old index meanwhile.
+                if (rowKey == activeRowKey.value) {
+                    focusHolder.activeItemIndex = relocatedIndex
+                    activeItemIndex.intValue = relocatedIndex
+                }
             }
         }
         itemIdentitySnapshot.byRow = currentItemIdentitiesByRow
