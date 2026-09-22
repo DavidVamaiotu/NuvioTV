@@ -78,84 +78,6 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
 
-      - name: Repair tied legacy release ordering
-        if: steps.upstream.outputs.should_release == 'true'
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          set -euo pipefail
-          OLDER_TAG="1.0.0-autosync.9"
-          NEWER_TAG="1.0.0-autosync.10"
-
-          OLDER_SHA="$(git ls-remote origin "refs/tags/$OLDER_TAG" | awk '{print $1}')"
-          NEWER_SHA="$(git ls-remote origin "refs/tags/$NEWER_TAG" | awk '{print $1}')"
-
-          if [[ -n "$OLDER_SHA" && "$OLDER_SHA" == "$NEWER_SHA" ]]; then
-            echo "$OLDER_TAG and $NEWER_TAG point to the same commit; moving only $NEWER_TAG to the current workflow-fix commit so GitHub can order them correctly."
-            git tag -f "$NEWER_TAG" HEAD
-            git push --force origin "refs/tags/$NEWER_TAG"
-          else
-            echo "Legacy release ordering already normalized."
-          fi
-
-          # GitHub keeps the original list position for an existing release even
-          # after its tag is corrected. If .10 is still below .9, recreate only
-          # the release object while preserving its tag, notes, prerelease state,
-          # and every APK asset. Future releases use unique anchor commits and
-          # never need this migration.
-          RELEASES_JSON="$(gh api "repos/$GITHUB_REPOSITORY/releases?per_page=20")"
-          INDEX_10="$(printf '%s' "$RELEASES_JSON" | jq -r 'to_entries[] | select(.value.tag_name=="1.0.0-autosync.10") | .key')"
-          INDEX_9="$(printf '%s' "$RELEASES_JSON" | jq -r 'to_entries[] | select(.value.tag_name=="1.0.0-autosync.9") | .key')"
-          CREATED_10="$(printf '%s' "$RELEASES_JSON" | jq -r '.[] | select(.tag_name=="1.0.0-autosync.10") | .created_at')"
-          CREATED_9="$(printf '%s' "$RELEASES_JSON" | jq -r '.[] | select(.tag_name=="1.0.0-autosync.9") | .created_at')"
-
-          if [[ -n "$INDEX_10" && -n "$INDEX_9" && -n "$CREATED_10" && -n "$CREATED_9" ]] &&
-             (( INDEX_10 > INDEX_9 )) &&
-             [[ "$CREATED_10" > "$CREATED_9" ]]; then
-            RELEASE_TITLE="$(printf '%s' "$RELEASES_JSON" | jq -r '.[] | select(.tag_name=="1.0.0-autosync.10") | (.name // .tag_name)')"
-            RELEASE_BODY="$(printf '%s' "$RELEASES_JSON" | jq -r '.[] | select(.tag_name=="1.0.0-autosync.10") | (.body // "")')"
-            RELEASE_PRERELEASE="$(printf '%s' "$RELEASES_JSON" | jq -r '.[] | select(.tag_name=="1.0.0-autosync.10") | .prerelease')"
-            RELEASE_DIR="$RUNNER_TEMP/release-order-repair"
-            NOTES_FILE="$RUNNER_TEMP/release-order-repair.md"
-
-            rm -rf "$RELEASE_DIR"
-            mkdir -p "$RELEASE_DIR"
-            printf '%s' "$RELEASE_BODY" > "$NOTES_FILE"
-
-            gh release download "$NEWER_TAG" --repo "$GITHUB_REPOSITORY" --dir "$RELEASE_DIR"
-            mapfile -t RELEASE_ASSETS < <(find "$RELEASE_DIR" -maxdepth 1 -type f -name '*.apk' -print | sort)
-            if (( ${#RELEASE_ASSETS[@]} == 0 )); then
-              echo "Refusing to recreate $NEWER_TAG without its APK assets." >&2
-              exit 1
-            fi
-
-            echo "Recreating $NEWER_TAG once so GitHub places it above $OLDER_TAG."
-            gh release delete "$NEWER_TAG" --repo "$GITHUB_REPOSITORY" --yes
-
-            CREATE_ARGS=(
-              "$NEWER_TAG"
-              "${RELEASE_ASSETS[@]}"
-              --repo "$GITHUB_REPOSITORY"
-              --verify-tag
-              --title "$RELEASE_TITLE"
-              --notes-file "$NOTES_FILE"
-              --latest=false
-            )
-            if [[ "$RELEASE_PRERELEASE" == "true" ]]; then
-              CREATE_ARGS+=(--prerelease)
-            fi
-            gh release create "${CREATE_ARGS[@]}"
-          fi
-
-      - name: Verify GitHub release ordering
-        if: steps.upstream.outputs.should_release == 'true'
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          set -euo pipefail
-          gh release list --repo "$GITHUB_REPOSITORY" --limit 15 --order desc \
-            --json tagName,createdAt,publishedAt,isLatest,isPrerelease
-
       - name: Fetch official NuvioTV release
         if: steps.upstream.outputs.should_release == 'true' && steps.upstream.outputs.needs_sync == 'true'
         env:
@@ -416,15 +338,11 @@ jobs:
         run: |
           set -euo pipefail
 
-          # Persist the exact version metadata used by this build. More importantly,
-          # this guarantees every canonical release has its own commit timestamp;
-          # GitHub orders releases by the tagged commit date, not publish time.
-          git add app/build.gradle.kts
-          if git diff --cached --quiet; then
-            git commit --allow-empty -m "Release $AUTOSYNC_TAG"
-          else
-            git commit -m "Release $AUTOSYNC_TAG"
-          fi
+          # The APK was already built with the stamped version. Restore the source
+          # file so release metadata stays ephemeral, then create a unique empty
+          # commit. GitHub orders releases by this tagged commit's creation time.
+          git restore --staged --worktree app/build.gradle.kts
+          git commit --allow-empty -m "Release $AUTOSYNC_TAG"
 
           if [[ -n "$PREVIOUS_TAG" ]]; then
             PREVIOUS_SHA="$(git rev-list -n 1 "$PREVIOUS_TAG")"
