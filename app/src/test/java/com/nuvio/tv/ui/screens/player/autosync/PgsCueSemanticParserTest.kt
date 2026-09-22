@@ -11,7 +11,8 @@ class PgsCueSemanticParserTest {
             clearSet(startMs = 2_000)
             visibleSet(startMs = 4_000, objectVersion = 1)
             clearSet(startMs = 5_000)
-            visibleSet(startMs = 7_000, objectVersion = 2, durationMs = 1_000)
+            visibleSet(startMs = 7_000, objectVersion = 2)
+            clearSet(startMs = 8_000)
         }.indexed()
         val result = PgsCueSemanticParser.buildTimeline(
             reference = reference(probes),
@@ -131,9 +132,8 @@ class PgsCueSemanticParserTest {
         startMs: Long,
         state: Int = 0,
         objectVersion: Int,
-        durationMs: Long? = null,
     ) {
-        add(presentation(startMs, state, objectId = 1, durationMs = durationMs))
+        add(presentation(startMs, state, objectId = 1))
         add(palette(startMs))
         add(objectData(startMs, objectId = 1, version = objectVersion))
         add(end(startMs))
