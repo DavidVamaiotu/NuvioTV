@@ -98,9 +98,11 @@ jobs:
             echo "Legacy release ordering already normalized."
           fi
 
-          # GitHub can retain the old release-list position after a tag is moved.
-          # Re-publish only when the API still shows .10 below .9 even though its
-          # created_at is newer. This keeps assets intact and does not change Latest.
+          # GitHub keeps the original list position for an existing release even
+          # after its tag is corrected. If .10 is still below .9, recreate only
+          # the release object while preserving its tag, notes, prerelease state,
+          # and every APK asset. Future releases use unique anchor commits and
+          # never need this migration.
           RELEASES_JSON="$(gh api "repos/$GITHUB_REPOSITORY/releases?per_page=20")"
           INDEX_10="$(printf '%s' "$RELEASES_JSON" | jq -r 'to_entries[] | select(.value.tag_name=="1.0.0-autosync.10") | .key')"
           INDEX_9="$(printf '%s' "$RELEASES_JSON" | jq -r 'to_entries[] | select(.value.tag_name=="1.0.0-autosync.9") | .key')"
@@ -110,10 +112,39 @@ jobs:
           if [[ -n "$INDEX_10" && -n "$INDEX_9" && -n "$CREATED_10" && -n "$CREATED_9" ]] &&
              (( INDEX_10 > INDEX_9 )) &&
              [[ "$CREATED_10" > "$CREATED_9" ]]; then
-            RELEASE_ID="$(printf '%s' "$RELEASES_JSON" | jq -r '.[] | select(.tag_name=="1.0.0-autosync.10") | .id')"
-            echo "Refreshing $NEWER_TAG release index without changing its assets or Latest status."
-            gh api --method PATCH "repos/$GITHUB_REPOSITORY/releases/$RELEASE_ID" -F prerelease=true -f make_latest=false >/dev/null
-            gh api --method PATCH "repos/$GITHUB_REPOSITORY/releases/$RELEASE_ID" -F prerelease=false -f make_latest=false >/dev/null
+            RELEASE_TITLE="$(printf '%s' "$RELEASES_JSON" | jq -r '.[] | select(.tag_name=="1.0.0-autosync.10") | (.name // .tag_name)')"
+            RELEASE_BODY="$(printf '%s' "$RELEASES_JSON" | jq -r '.[] | select(.tag_name=="1.0.0-autosync.10") | (.body // "")')"
+            RELEASE_PRERELEASE="$(printf '%s' "$RELEASES_JSON" | jq -r '.[] | select(.tag_name=="1.0.0-autosync.10") | .prerelease')"
+            RELEASE_DIR="$RUNNER_TEMP/release-order-repair"
+            NOTES_FILE="$RUNNER_TEMP/release-order-repair.md"
+
+            rm -rf "$RELEASE_DIR"
+            mkdir -p "$RELEASE_DIR"
+            printf '%s' "$RELEASE_BODY" > "$NOTES_FILE"
+
+            gh release download "$NEWER_TAG" --repo "$GITHUB_REPOSITORY" --dir "$RELEASE_DIR"
+            mapfile -t RELEASE_ASSETS < <(find "$RELEASE_DIR" -maxdepth 1 -type f -name '*.apk' -print | sort)
+            if (( ${#RELEASE_ASSETS[@]} == 0 )); then
+              echo "Refusing to recreate $NEWER_TAG without its APK assets." >&2
+              exit 1
+            fi
+
+            echo "Recreating $NEWER_TAG once so GitHub places it above $OLDER_TAG."
+            gh release delete "$NEWER_TAG" --repo "$GITHUB_REPOSITORY" --yes
+
+            CREATE_ARGS=(
+              "$NEWER_TAG"
+              "${RELEASE_ASSETS[@]}"
+              --repo "$GITHUB_REPOSITORY"
+              --verify-tag
+              --title "$RELEASE_TITLE"
+              --notes-file "$NOTES_FILE"
+              --latest=false
+            )
+            if [[ "$RELEASE_PRERELEASE" == "true" ]]; then
+              CREATE_ARGS+=(--prerelease)
+            fi
+            gh release create "${CREATE_ARGS[@]}"
           fi
 
       - name: Fetch official NuvioTV release
