@@ -20,6 +20,7 @@ import okhttp3.Callback
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.Response
+import java.io.ByteArrayOutputStream
 import java.util.ArrayDeque
 import java.util.LinkedHashMap
 import java.util.concurrent.TimeUnit
@@ -55,7 +56,11 @@ internal object EmbeddedSubtitleTimelineLoader {
     private const val MATROSKA_PGS_CODEC_ID = "S_HDMV/PGS"
     private const val PGS_RESOLUTION_TIMEOUT_MS = 5_000L
     private const val PGS_RESOLUTION_MAX_BYTES = 4L * 1024L * 1024L
-    private const val PGS_RESOLUTION_MAX_REQUESTS = 32
+    private const val PGS_RESOLUTION_MAX_REQUESTS = 64
+    private const val PGS_CLUSTER_WINDOW_BYTES = 256
+    private const val PGS_BLOCK_WINDOW_BYTES = 256
+    private const val PGS_END_WINDOW_BYTES = 13
+    private const val PGS_MULTI_RANGE_BATCH = 128
     private const val MIN_INDEXED_CUES = 8
     private const val MIN_INDEXED_SPAN_MS = 30_000L
     private const val MAX_CACHE_ENTRIES = 2
@@ -96,6 +101,8 @@ internal object EmbeddedSubtitleTimelineLoader {
     private const val ID_LANGUAGE_IETF = 0x22B59DL
     private const val ID_CODEC_ID = 0x86L
     private const val ID_CONTENT_ENCODINGS = 0x6D80L
+    private const val ID_TRACK_TIMESTAMP_SCALE = 0x23314FL
+    private const val ID_CODEC_DELAY = 0x56AAL
     private const val TRACK_TYPE_SUBTITLE = 17L
 
     // Cues.
@@ -214,18 +221,11 @@ internal object EmbeddedSubtitleTimelineLoader {
                     "${reference.cues.lastOrNull()?.startTimeMs ?: -1L}"
             val cached = synchronized(cacheLock) { pgsResolutionCache[cacheKey] }
             val resolution = cached ?: try {
-                PgsCueSemanticParser.resolve(
+                resolvePgsReference(
+                    sourceUrl = sourceUrl,
+                    sourceHeaders = sourceHeaders,
                     reference = reference,
-                    rangeReader = { start, length ->
-                        fetchRange(
-                            sourceUrl = sourceUrl,
-                            sourceHeaders = sourceHeaders,
-                            start = start,
-                            length = length,
-                            requirePartialContent = start > 0L,
-                            stats = stats,
-                        )?.bytes
-                    },
+                    stats = stats,
                 )
             } catch (cancel: CancellationException) {
                 throw cancel
@@ -273,6 +273,171 @@ internal object EmbeddedSubtitleTimelineLoader {
         }
 
         return ready
+    }
+
+    private suspend fun resolvePgsReference(
+        sourceUrl: String,
+        sourceHeaders: Map<String, String>,
+        reference: IndexedPgsReference,
+        stats: RangeStats,
+    ): PgsReferenceResolution {
+        reference.unsupportedReason?.let { reason ->
+            return PgsReferenceResolution.Unavailable(reason, cacheable = true)
+        }
+        if (reference.cues.isEmpty()) {
+            return PgsReferenceResolution.Unavailable("no-indexed-pgs-cues", cacheable = true)
+        }
+
+        val clusterStarts = reference.cues
+            .map { cue ->
+                if (cue.clusterPosition < 0L ||
+                    reference.segmentDataStart > Long.MAX_VALUE - cue.clusterPosition
+                ) {
+                    return PgsReferenceResolution.Unavailable(
+                        "invalid-cluster-position",
+                        cacheable = true,
+                    )
+                }
+                reference.segmentDataStart + cue.clusterPosition
+            }
+            .distinct()
+
+        val clusterRanges = clusterStarts.map { start ->
+            SparseRange(start = start, length = PGS_CLUSTER_WINDOW_BYTES)
+        }
+        val clusterWindows = fetchSparseRanges(
+            sourceUrl = sourceUrl,
+            sourceHeaders = sourceHeaders,
+            ranges = clusterRanges,
+            stats = stats,
+        ) ?: return PgsReferenceResolution.Unavailable(
+            "cluster-window-fetch-unavailable",
+            cacheable = false,
+        )
+
+        val clusterByPosition = mutableMapOf<Long, PgsClusterInfo>()
+        for (range in clusterRanges) {
+            val bytes = clusterWindows[range.start]
+                ?: return PgsReferenceResolution.Unavailable(
+                    "incomplete-cluster-window-coverage",
+                    cacheable = false,
+                )
+            val parsed = PgsCueSemanticParser.parseClusterWindow(
+                reference = reference,
+                clusterStart = range.start,
+                bytes = bytes,
+            )
+            val cluster = parsed.getOrElse { error ->
+                return PgsReferenceResolution.Unavailable(
+                    error.message ?: "cluster-parse-failed",
+                    cacheable = true,
+                )
+            }
+            clusterByPosition[range.start] = cluster
+        }
+
+        val blockPositions = ArrayList<Long>(reference.cues.size)
+        for (locator in reference.cues) {
+            val clusterStart = reference.segmentDataStart + locator.clusterPosition
+            val cluster = clusterByPosition[clusterStart]
+                ?: return PgsReferenceResolution.Unavailable(
+                    "missing-cluster-window",
+                    cacheable = false,
+                )
+            val blockPosition = PgsCueSemanticParser
+                .blockPosition(locator, cluster)
+                .getOrElse { error ->
+                    return PgsReferenceResolution.Unavailable(
+                        error.message ?: "block-position-unavailable",
+                        cacheable = true,
+                    )
+                }
+            blockPositions += blockPosition
+        }
+
+        val blockRanges = blockPositions
+            .distinct()
+            .map { start -> SparseRange(start = start, length = PGS_BLOCK_WINDOW_BYTES) }
+        val blockWindows = fetchSparseRanges(
+            sourceUrl = sourceUrl,
+            sourceHeaders = sourceHeaders,
+            ranges = blockRanges,
+            stats = stats,
+        ) ?: return PgsReferenceResolution.Unavailable(
+            "block-window-fetch-unavailable",
+            cacheable = false,
+        )
+
+        val probes = ArrayList<PgsPresentationProbe>(reference.cues.size)
+        reference.cues.forEachIndexed { index, locator ->
+            val clusterStart = reference.segmentDataStart + locator.clusterPosition
+            val cluster = clusterByPosition[clusterStart]
+                ?: return PgsReferenceResolution.Unavailable(
+                    "missing-cluster-window",
+                    cacheable = false,
+                )
+            val blockPosition = blockPositions[index]
+            val bytes = blockWindows[blockPosition]
+                ?: return PgsReferenceResolution.Unavailable(
+                    "incomplete-block-window-coverage",
+                    cacheable = false,
+                )
+            val probe = PgsCueSemanticParser.parsePresentationWindow(
+                reference = reference,
+                locator = locator,
+                cluster = cluster,
+                blockPosition = blockPosition,
+                bytes = bytes,
+                cueIndex = index,
+            ).getOrElse { error ->
+                return PgsReferenceResolution.Unavailable(
+                    error.message ?: "pgs-presentation-parse-failed",
+                    cacheable = true,
+                )
+            }
+            probes += probe
+        }
+
+        val endStarts = probes.map { probe ->
+            if (probe.payloadEnd < PGS_END_WINDOW_BYTES) {
+                return PgsReferenceResolution.Unavailable(
+                    "invalid-pgs-payload-end",
+                    cacheable = true,
+                )
+            }
+            probe.payloadEnd - PGS_END_WINDOW_BYTES
+        }
+        val endRanges = endStarts
+            .distinct()
+            .map { start -> SparseRange(start = start, length = PGS_END_WINDOW_BYTES) }
+        val endWindows = fetchSparseRanges(
+            sourceUrl = sourceUrl,
+            sourceHeaders = sourceHeaders,
+            ranges = endRanges,
+            stats = stats,
+        ) ?: return PgsReferenceResolution.Unavailable(
+            "display-end-fetch-unavailable",
+            cacheable = false,
+        )
+
+        for (start in endStarts) {
+            val bytes = endWindows[start]
+                ?: return PgsReferenceResolution.Unavailable(
+                    "incomplete-display-end-coverage",
+                    cacheable = false,
+                )
+            if (!PgsCueSemanticParser.hasDisplayEnd(bytes)) {
+                return PgsReferenceResolution.Unavailable(
+                    "display-set-missing-end",
+                    cacheable = true,
+                )
+            }
+        }
+
+        return PgsCueSemanticParser.buildTimeline(
+            reference = reference,
+            probes = probes,
+        )
     }
 
     private suspend fun loadMatroskaCueIndex(
@@ -581,6 +746,9 @@ internal object EmbeddedSubtitleTimelineLoader {
                 },
                 unsupportedReason = when {
                     track.hasContentEncodings -> "track-content-encoding"
+                    !track.trackTimestampScale.isFinite() || track.trackTimestampScale != 1.0 ->
+                        "unsupported-track-timestamp-scale"
+                    track.codecDelayNs != 0L -> "unsupported-codec-delay"
                     missingClusterPosition -> "missing-cluster-position"
                     else -> null
                 },
@@ -1274,6 +1442,8 @@ internal object EmbeddedSubtitleTimelineLoader {
             var textDescriptions = false
             var commentary = false
             var hasContentEncodings = false
+            var trackTimestampScale = 1.0
+            var codecDelayNs = 0L
 
             forEachChild(tracksElement, entry.dataStart, entryEnd) { child ->
                 when (child.id) {
@@ -1284,6 +1454,9 @@ internal object EmbeddedSubtitleTimelineLoader {
                     ID_LANGUAGE_IETF -> languageIetf = readUtf8(tracksElement, child)
                     ID_CODEC_ID -> codecId = readUtf8(tracksElement, child)
                     ID_CONTENT_ENCODINGS -> hasContentEncodings = true
+                    ID_TRACK_TIMESTAMP_SCALE ->
+                        trackTimestampScale = readFloat(tracksElement, child) ?: Double.NaN
+                    ID_CODEC_DELAY -> codecDelayNs = readUnsigned(tracksElement, child) ?: Long.MAX_VALUE
                     ID_FLAG_DEFAULT -> isDefault = readUnsigned(tracksElement, child) != 0L
                     ID_FLAG_FORCED -> forced = readUnsigned(tracksElement, child) == 1L
                     ID_FLAG_HEARING_IMPAIRED -> hearingImpaired = readUnsigned(tracksElement, child) == 1L
@@ -1308,6 +1481,8 @@ internal object EmbeddedSubtitleTimelineLoader {
                     textDescriptions = textDescriptions,
                     commentary = commentary,
                     hasContentEncodings = hasContentEncodings,
+                    trackTimestampScale = trackTimestampScale,
+                    codecDelayNs = codecDelayNs,
                 )
             }
         }
@@ -1561,6 +1736,337 @@ internal object EmbeddedSubtitleTimelineLoader {
             stats = stats,
             requireExactLength = true,
         )?.bytes
+    }
+
+    private suspend fun fetchSparseRanges(
+        sourceUrl: String,
+        sourceHeaders: Map<String, String>,
+        ranges: List<SparseRange>,
+        stats: RangeStats,
+    ): Map<Long, ByteArray>? {
+        if (ranges.isEmpty()) return emptyMap()
+
+        val unique = ranges
+            .filter { it.start >= 0L && it.length > 0 }
+            .distinctBy { it.start to it.length }
+            .sortedBy { it.start }
+        if (unique.size != ranges.distinctBy { it.start to it.length }.size) return null
+
+        val result = mutableMapOf<Long, ByteArray>()
+        for (batch in unique.chunked(PGS_MULTI_RANGE_BATCH)) {
+            val fetched = if (batch.size == 1) {
+                val range = batch.single()
+                val response = fetchRange(
+                    sourceUrl = sourceUrl,
+                    sourceHeaders = sourceHeaders,
+                    start = range.start,
+                    length = range.length,
+                    requirePartialContent = range.start > 0L,
+                    stats = stats,
+                    requireExactLength = true,
+                ) ?: return null
+                mapOf(range.start to response.bytes)
+            } else {
+                fetchSparseRangeBatchAdaptive(
+                    sourceUrl = sourceUrl,
+                    sourceHeaders = sourceHeaders,
+                    ranges = batch,
+                    stats = stats,
+                ) ?: return null
+            }
+
+            for (range in batch) {
+                val bytes = fetched[range.start] ?: return null
+                if (bytes.size != range.length) return null
+                result[range.start] = bytes
+            }
+        }
+        return result
+    }
+
+    private suspend fun fetchSparseRangeBatchAdaptive(
+        sourceUrl: String,
+        sourceHeaders: Map<String, String>,
+        ranges: List<SparseRange>,
+        stats: RangeStats,
+    ): Map<Long, ByteArray>? {
+        fetchSparseRangeBatch(
+            sourceUrl = sourceUrl,
+            sourceHeaders = sourceHeaders,
+            ranges = ranges,
+            stats = stats,
+        )?.let { return it }
+
+        if (ranges.size <= 16 ||
+            stats.remainingBudgetMs() <= 0L ||
+            stats.requests >= stats.maxRequests
+        ) {
+            return null
+        }
+
+        val midpoint = ranges.size / 2
+        val left = fetchSparseRangeBatchAdaptive(
+            sourceUrl = sourceUrl,
+            sourceHeaders = sourceHeaders,
+            ranges = ranges.subList(0, midpoint),
+            stats = stats,
+        ) ?: return null
+        val right = fetchSparseRangeBatchAdaptive(
+            sourceUrl = sourceUrl,
+            sourceHeaders = sourceHeaders,
+            ranges = ranges.subList(midpoint, ranges.size),
+            stats = stats,
+        ) ?: return null
+
+        return buildMap(left.size + right.size) {
+            putAll(left)
+            putAll(right)
+        }
+    }
+
+    private suspend fun fetchSparseRangeBatch(
+        sourceUrl: String,
+        sourceHeaders: Map<String, String>,
+        ranges: List<SparseRange>,
+        stats: RangeStats,
+    ): Map<Long, ByteArray>? {
+        if (ranges.size < 2 || stats.requests >= stats.maxRequests) return null
+
+        var expectedDataBytes = 0L
+        val rangeHeader = buildString {
+            append("bytes=")
+            ranges.forEachIndexed { index, range ->
+                if (range.start < 0L || range.length <= 0) return null
+                val end = range.start + range.length - 1L
+                if (end < range.start) return null
+                if (index > 0) append(',')
+                append(range.start)
+                append('-')
+                append(end)
+                expectedDataBytes += range.length.toLong()
+            }
+        }
+
+        val overheadAllowance = ranges.size.toLong() * 512L + 4_096L
+        val maxBodyBytes = (expectedDataBytes + overheadAllowance)
+            .coerceAtMost(stats.remainingByteBudget())
+        if (maxBodyBytes <= 0L || maxBodyBytes > Int.MAX_VALUE.toLong()) return null
+
+        val remainingBudgetMs = stats.remainingBudgetMs()
+        if (remainingBudgetMs <= 0L) return null
+
+        val requestBuilder = Request.Builder()
+            .url(sourceUrl)
+            .header("Range", rangeHeader)
+            .header("Accept-Encoding", "identity")
+        sourceHeaders.forEach { (name, value) ->
+            if (!name.equals("Range", ignoreCase = true) &&
+                !name.equals("Accept-Encoding", ignoreCase = true) &&
+                !name.equals("Content-Length", ignoreCase = true) &&
+                !name.equals("Host", ignoreCase = true)
+            ) {
+                requestBuilder.header(name, value)
+            }
+        }
+
+        stats.requests++
+        val call = httpClient.newCall(requestBuilder.build())
+        call.timeout().timeout(
+            minOf(remainingBudgetMs.coerceAtLeast(1L), 5_000L),
+            TimeUnit.MILLISECONDS,
+        )
+
+        return suspendCancellableCoroutine { continuation ->
+            continuation.invokeOnCancellation { call.cancel() }
+
+            call.enqueue(
+                object : Callback {
+                    override fun onFailure(call: Call, error: java.io.IOException) {
+                        if (!continuation.isActive) return
+                        if (call.isCanceled()) {
+                            continuation.resumeWith(
+                                Result.failure(
+                                    CancellationException(
+                                        "Cancelled PGS multi-range request",
+                                    ).also { it.initCause(error) },
+                                ),
+                            )
+                        } else {
+                            continuation.resumeWith(Result.success(null))
+                        }
+                    }
+
+                    override fun onResponse(call: Call, response: Response) {
+                        if (!continuation.isActive) {
+                            response.close()
+                            return
+                        }
+
+                        try {
+                            val result = response.use { current ->
+                                if (current.code != 206) return@use null
+
+                                val contentType = current.header("Content-Type").orEmpty()
+                                if (!contentType.contains(
+                                        "multipart/byteranges",
+                                        ignoreCase = true,
+                                    )
+                                ) {
+                                    return@use null
+                                }
+
+                                val boundary = contentType
+                                    .split(';')
+                                    .asSequence()
+                                    .map { it.trim() }
+                                    .firstOrNull { it.startsWith("boundary=", ignoreCase = true) }
+                                    ?.substringAfter('=')
+                                    ?.trim()
+                                    ?.trim('"')
+                                    ?.takeIf { it.isNotEmpty() }
+                                    ?: return@use null
+
+                                val declaredLength = current.body?.contentLength() ?: -1L
+                                if (declaredLength > maxBodyBytes) return@use null
+                                val body = current.body ?: return@use null
+                                val bytes = readBoundedResponseBody(
+                                    input = body.byteStream(),
+                                    maxBytes = maxBodyBytes.toInt(),
+                                    stats = stats,
+                                ) ?: return@use null
+
+                                parseMultipartByteRanges(
+                                    bytes = bytes,
+                                    boundary = boundary,
+                                )
+                            }
+
+                            if (continuation.isActive) {
+                                continuation.resumeWith(Result.success(result))
+                            }
+                        } catch (cancel: CancellationException) {
+                            if (continuation.isActive) {
+                                continuation.resumeWith(Result.failure(cancel))
+                            }
+                        } catch (_: Exception) {
+                            if (continuation.isActive) {
+                                continuation.resumeWith(Result.success(null))
+                            }
+                        }
+                    }
+                },
+            )
+        }
+    }
+
+    private fun readBoundedResponseBody(
+        input: java.io.InputStream,
+        maxBytes: Int,
+        stats: RangeStats,
+    ): ByteArray? {
+        if (maxBytes <= 0) return null
+        val output = ByteArrayOutputStream(minOf(maxBytes, 64 * 1024))
+        val buffer = ByteArray(8 * 1024)
+        var total = 0
+
+        while (true) {
+            if (stats.remainingBudgetMs() <= 0L || stats.remainingByteBudget() <= 0L) {
+                return null
+            }
+            val allowed = minOf(
+                buffer.size,
+                maxBytes - total,
+                stats.remainingByteBudget().coerceAtMost(Int.MAX_VALUE.toLong()).toInt(),
+            )
+            if (allowed <= 0) {
+                return if (input.read() < 0) output.toByteArray() else null
+            }
+            val read = input.read(buffer, 0, allowed)
+            if (read < 0) break
+            if (read == 0) continue
+            output.write(buffer, 0, read)
+            total += read
+            stats.bytesDownloaded += read.toLong()
+            if (total >= maxBytes) {
+                return if (input.read() < 0) output.toByteArray() else null
+            }
+        }
+
+        return output.toByteArray()
+    }
+
+    private fun parseMultipartByteRanges(
+        bytes: ByteArray,
+        boundary: String,
+    ): Map<Long, ByteArray>? {
+        val marker = "--$boundary".toByteArray(Charsets.ISO_8859_1)
+        val headerSeparator = byteArrayOf(13, 10, 13, 10)
+        val result = mutableMapOf<Long, ByteArray>()
+        var cursor = 0
+
+        while (true) {
+            val markerIndex = indexOfBytes(bytes, marker, cursor)
+            if (markerIndex < 0) break
+            var position = markerIndex + marker.size
+
+            if (position + 1 < bytes.size &&
+                bytes[position].toInt() == 45 &&
+                bytes[position + 1].toInt() == 45
+            ) {
+                break
+            }
+            if (position + 1 >= bytes.size ||
+                bytes[position].toInt() != 13 ||
+                bytes[position + 1].toInt() != 10
+            ) {
+                return null
+            }
+            position += 2
+
+            val headerEnd = indexOfBytes(bytes, headerSeparator, position)
+            if (headerEnd < 0) return null
+            val headers = bytes
+                .copyOfRange(position, headerEnd)
+                .toString(Charsets.ISO_8859_1)
+            val contentRangeValue = headers
+                .lineSequence()
+                .firstOrNull { it.startsWith("Content-Range:", ignoreCase = true) }
+                ?.substringAfter(':')
+                ?.trim()
+                ?: return null
+            val contentRange = parseContentRange(contentRangeValue) ?: return null
+            val start = contentRange.start ?: return null
+            val end = contentRange.end ?: return null
+            if (end < start || end - start + 1L > Int.MAX_VALUE.toLong()) return null
+
+            val dataStart = headerEnd + headerSeparator.size
+            val dataLength = (end - start + 1L).toInt()
+            val dataEnd = dataStart + dataLength
+            if (dataEnd < dataStart || dataEnd > bytes.size) return null
+
+            result[start] = bytes.copyOfRange(dataStart, dataEnd)
+            cursor = dataEnd
+        }
+
+        return result.takeIf { it.isNotEmpty() }
+    }
+
+    private fun indexOfBytes(
+        bytes: ByteArray,
+        needle: ByteArray,
+        start: Int,
+    ): Int {
+        if (needle.isEmpty()) return start.coerceIn(0, bytes.size)
+        if (bytes.size < needle.size) return -1
+        val first = start.coerceAtLeast(0)
+        val last = bytes.size - needle.size
+        outer@ for (index in first..last) {
+            for (offset in needle.indices) {
+                if (bytes[index + offset] != needle[offset]) continue@outer
+            }
+            return index
+        }
+        return -1
     }
 
     private suspend fun fetchRange(
@@ -1817,6 +2323,30 @@ internal object EmbeddedSubtitleTimelineLoader {
         return value
     }
 
+    private fun readFloat(bytes: ByteArray, element: EbmlElement): Double? {
+        val size = element.size ?: return null
+        if (size != 4L && size != 8L) return null
+        val end = element.dataStart + size.toInt()
+        if (end > bytes.size) return null
+        return when (size) {
+            4L -> {
+                var bits = 0
+                for (index in element.dataStart until end) {
+                    bits = (bits shl 8) or (bytes[index].toInt() and 0xFF)
+                }
+                Float.fromBits(bits).toDouble()
+            }
+            8L -> {
+                var bits = 0L
+                for (index in element.dataStart until end) {
+                    bits = (bits shl 8) or (bytes[index].toLong() and 0xFFL)
+                }
+                Double.fromBits(bits)
+            }
+            else -> null
+        }
+    }
+
     private fun readBinaryId(bytes: ByteArray, element: EbmlElement): Long? {
         val size = element.size ?: return null
         if (size !in 1L..4L) return null
@@ -1867,6 +2397,11 @@ internal object EmbeddedSubtitleTimelineLoader {
     private data class RangeResponse(
         val bytes: ByteArray,
         val totalLength: Long?,
+    )
+
+    private data class SparseRange(
+        val start: Long,
+        val length: Int,
     )
 
     private data class RangeStats(
@@ -1932,6 +2467,8 @@ internal object EmbeddedSubtitleTimelineLoader {
         val textDescriptions: Boolean,
         val commentary: Boolean,
         val hasContentEncodings: Boolean,
+        val trackTimestampScale: Double,
+        val codecDelayNs: Long,
     )
 
     private data class CueTrackPosition(
