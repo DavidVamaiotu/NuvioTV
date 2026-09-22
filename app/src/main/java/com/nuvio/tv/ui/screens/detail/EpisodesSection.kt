@@ -48,6 +48,8 @@ import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusProperties
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.ui.platform.LocalLayoutDirection
+import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.PathEffect
@@ -137,6 +139,7 @@ fun SeasonTabs(
     val typography = MaterialTheme.typography
     val tabTextStyle = remember(typography) { typography.titleMedium }
     val textSecondary = NuvioTheme.extendedColors.textSecondary
+    val isRtl = LocalLayoutDirection.current == LayoutDirection.Rtl
     val initialSeasonIndex = remember(sortedSeasons, selectedSeason) {
         sortedSeasons.indexOf(selectedSeason).coerceAtLeast(0)
     }
@@ -181,6 +184,8 @@ fun SeasonTabs(
     ) {
         items(sortedSeasons, key = { it }) { season ->
             val isSelected = season == selectedSeason
+            val isRightEdge = if (isRtl) season == sortedSeasons.first() else season == sortedSeasons.last()
+            val isLeftEdge = if (isRtl) season == sortedSeasons.last() else season == sortedSeasons.first()
             var isFocused by remember { mutableStateOf(false) }
             var longPressTriggered by remember { mutableStateOf(false) }
             val longPressKeyTracker = rememberLongPressKeyTracker()
@@ -197,6 +202,8 @@ fun SeasonTabs(
                     .then(if (isSelected) Modifier.focusRequester(selectedTabFocusRequester) else Modifier)
                     .focusProperties {
                         canFocus = isFocusEnabled
+                        if (isRightEdge) right = FocusRequester.Cancel
+                        if (isLeftEdge) left = FocusRequester.Cancel
                         if (isSelected && downFocusRequester != null) {
                             down = downFocusRequester
                         }
