@@ -1,9 +1,7 @@
 name: AutoSync TV Release
 
-# Release trigger: conservative grouped reply timing repair
+# Release trigger: eliminate duplicate fallback wait
 
-
-# Release trigger: uniform validated delay-only timing
 
 on:
   workflow_dispatch:

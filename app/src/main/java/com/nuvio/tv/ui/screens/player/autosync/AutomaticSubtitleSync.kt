@@ -362,7 +362,7 @@ internal object AutomaticSubtitleSync {
                     logSelectedOnce()
                     return true
                 }
-                if (!selectedResolved) return false
+                if (!selectedSubtitleDeferred.isCompleted) return false
 
                 selected = selectedSubtitleDeferred.await()
                 selectedResolved = true
@@ -465,10 +465,6 @@ internal object AutomaticSubtitleSync {
             }
 
             var seedTarget = selected?.cues
-            if (seedTarget.isNullOrEmpty()) {
-                awaitSameLanguageAlternatives()
-                seedTarget = selected?.cues
-            }
 
             if (seedTarget.isNullOrEmpty()) {
                 val pendingSeedLoads = linkedMapOf<String, Deferred<LoadedSubtitle?>>()
