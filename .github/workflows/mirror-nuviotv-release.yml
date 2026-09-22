@@ -78,6 +78,24 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
 
+      - name: Repair tied legacy release ordering
+        if: steps.upstream.outputs.should_release == 'true'
+        run: |
+          set -euo pipefail
+          OLDER_TAG="1.0.0-autosync.9"
+          NEWER_TAG="1.0.0-autosync.10"
+
+          OLDER_SHA="$(git ls-remote origin "refs/tags/$OLDER_TAG" | awk '{print $1}')"
+          NEWER_SHA="$(git ls-remote origin "refs/tags/$NEWER_TAG" | awk '{print $1}')"
+
+          if [[ -n "$OLDER_SHA" && "$OLDER_SHA" == "$NEWER_SHA" ]]; then
+            echo "$OLDER_TAG and $NEWER_TAG point to the same commit; moving only $NEWER_TAG to the current workflow-fix commit so GitHub can order them correctly."
+            git tag -f "$NEWER_TAG" HEAD
+            git push --force origin "refs/tags/$NEWER_TAG"
+          else
+            echo "Legacy release ordering already normalized."
+          fi
+
       - name: Fetch official NuvioTV release
         if: steps.upstream.outputs.should_release == 'true' && steps.upstream.outputs.needs_sync == 'true'
         env:
@@ -330,9 +348,34 @@ jobs:
 
           echo "Verified update identity: package=$NEW_PACKAGE versionCode=$NEW_VERSION"
 
-      - name: Push merged upstream release
-        if: steps.upstream.outputs.should_release == 'true' && steps.upstream.outputs.needs_sync == 'true'
-        run: git push origin HEAD:subtitle-autosync
+      - name: Commit canonical release anchor
+        if: steps.upstream.outputs.should_release == 'true'
+        env:
+          AUTOSYNC_TAG: ${{ steps.version.outputs.tag }}
+          PREVIOUS_TAG: ${{ steps.version.outputs.previous_tag }}
+        run: |
+          set -euo pipefail
+
+          # Persist the exact version metadata used by this build. More importantly,
+          # this guarantees every canonical release has its own commit timestamp;
+          # GitHub orders releases by the tagged commit date, not publish time.
+          git add app/build.gradle.kts
+          if git diff --cached --quiet; then
+            git commit --allow-empty -m "Release $AUTOSYNC_TAG"
+          else
+            git commit -m "Release $AUTOSYNC_TAG"
+          fi
+
+          if [[ -n "$PREVIOUS_TAG" ]]; then
+            PREVIOUS_SHA="$(git rev-list -n 1 "$PREVIOUS_TAG")"
+            CURRENT_SHA="$(git rev-parse HEAD)"
+            if [[ "$CURRENT_SHA" == "$PREVIOUS_SHA" ]]; then
+              echo "Release anchor unexpectedly matches previous release commit." >&2
+              exit 1
+            fi
+          fi
+
+          git push origin HEAD:subtitle-autosync
 
       - name: Create canonical AutoSync release
         if: steps.upstream.outputs.should_release == 'true'
