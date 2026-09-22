@@ -59,7 +59,6 @@ internal object EmbeddedSubtitleTimelineLoader {
     private const val PGS_RESOLUTION_MAX_REQUESTS = 64
     private const val PGS_CLUSTER_WINDOW_BYTES = 256
     private const val PGS_BLOCK_WINDOW_BYTES = 256
-    private const val PGS_END_WINDOW_BYTES = 13
     private const val PGS_MULTI_RANGE_BATCH = 128
     private const val MIN_INDEXED_CUES = 8
     private const val MIN_INDEXED_SPAN_MS = 30_000L
@@ -77,6 +76,8 @@ internal object EmbeddedSubtitleTimelineLoader {
     private const val ID_TRACKS = 0x1654AE6BL
     private const val ID_CUES = 0x1C53BB6BL
     private const val ID_CLUSTER = 0x1F43B675L
+    private const val ID_BLOCK_GROUP = 0xA0L
+    private const val ID_SIMPLE_BLOCK = 0xA3L
 
     // SeekHead.
     private const val ID_SEEK = 0x4DBBL
@@ -337,6 +338,7 @@ internal object EmbeddedSubtitleTimelineLoader {
         }
 
         val blockPositions = ArrayList<Long>(reference.cues.size)
+        val blockScanStates = mutableMapOf<Long, PgsBlockScanState>()
         for (locator in reference.cues) {
             val clusterStart = reference.segmentDataStart + locator.clusterPosition
             val cluster = clusterByPosition[clusterStart]
@@ -344,14 +346,32 @@ internal object EmbeddedSubtitleTimelineLoader {
                     "missing-cluster-window",
                     cacheable = false,
                 )
-            val blockPosition = PgsCueSemanticParser
+            val directPosition = PgsCueSemanticParser
                 .blockPosition(locator, cluster)
-                .getOrElse { error ->
+                .getOrNull()
+            val blockPosition = directPosition ?: run {
+                val blockNumber = locator.blockNumber ?: 1L
+                if (locator.relativePosition != null || blockNumber <= 1L) {
                     return PgsReferenceResolution.Unavailable(
-                        error.message ?: "block-position-unavailable",
+                        "block-position-unavailable",
                         cacheable = true,
                     )
                 }
+                val state = blockScanStates.getOrPut(clusterStart) {
+                    PgsBlockScanState(position = cluster.dataStart)
+                }
+                resolvePgsBlockByNumber(
+                    sourceUrl = sourceUrl,
+                    sourceHeaders = sourceHeaders,
+                    cluster = cluster,
+                    blockNumber = blockNumber,
+                    state = state,
+                    stats = stats,
+                ) ?: return PgsReferenceResolution.Unavailable(
+                    "cue-block-number-unresolved block=$blockNumber",
+                    cacheable = false,
+                )
+            }
             blockPositions += blockPosition
         }
 
@@ -368,7 +388,7 @@ internal object EmbeddedSubtitleTimelineLoader {
             cacheable = false,
         )
 
-        val probes = ArrayList<PgsPresentationProbe>(reference.cues.size)
+        val probes = ArrayList<PgsSegmentProbe>(reference.cues.size)
         reference.cues.forEachIndexed { index, locator ->
             val clusterStart = reference.segmentDataStart + locator.clusterPosition
             val cluster = clusterByPosition[clusterStart]
@@ -382,7 +402,7 @@ internal object EmbeddedSubtitleTimelineLoader {
                     "incomplete-block-window-coverage",
                     cacheable = false,
                 )
-            val probe = PgsCueSemanticParser.parsePresentationWindow(
+            val probe = PgsCueSemanticParser.parseSegmentWindow(
                 reference = reference,
                 locator = locator,
                 cluster = cluster,
@@ -391,53 +411,60 @@ internal object EmbeddedSubtitleTimelineLoader {
                 cueIndex = index,
             ).getOrElse { error ->
                 return PgsReferenceResolution.Unavailable(
-                    error.message ?: "pgs-presentation-parse-failed",
+                    error.message ?: "pgs-segment-parse-failed",
                     cacheable = true,
                 )
             }
             probes += probe
         }
 
-        val endStarts = probes.map { probe ->
-            if (probe.payloadEnd < PGS_END_WINDOW_BYTES) {
-                return PgsReferenceResolution.Unavailable(
-                    "invalid-pgs-payload-end",
-                    cacheable = true,
-                )
-            }
-            probe.payloadEnd - PGS_END_WINDOW_BYTES
-        }
-        val endRanges = endStarts
-            .distinct()
-            .map { start -> SparseRange(start = start, length = PGS_END_WINDOW_BYTES) }
-        val endWindows = fetchSparseRanges(
-            sourceUrl = sourceUrl,
-            sourceHeaders = sourceHeaders,
-            ranges = endRanges,
-            stats = stats,
-        ) ?: return PgsReferenceResolution.Unavailable(
-            "display-end-fetch-unavailable",
-            cacheable = false,
-        )
-
-        for (start in endStarts) {
-            val bytes = endWindows[start]
-                ?: return PgsReferenceResolution.Unavailable(
-                    "incomplete-display-end-coverage",
-                    cacheable = false,
-                )
-            if (!PgsCueSemanticParser.hasDisplayEnd(bytes)) {
-                return PgsReferenceResolution.Unavailable(
-                    "display-set-missing-end",
-                    cacheable = true,
-                )
-            }
-        }
-
         return PgsCueSemanticParser.buildTimeline(
             reference = reference,
             probes = probes,
         )
+    }
+
+    private suspend fun resolvePgsBlockByNumber(
+        sourceUrl: String,
+        sourceHeaders: Map<String, String>,
+        cluster: PgsClusterInfo,
+        blockNumber: Long,
+        state: PgsBlockScanState,
+        stats: RangeStats,
+    ): Long? {
+        state.resolved[blockNumber]?.let { return it }
+        val clusterEnd = cluster.end ?: return null
+
+        while (state.position < clusterEnd) {
+            if (stats.remainingBudgetMs() <= 0L ||
+                stats.requests >= stats.maxRequests ||
+                stats.remainingByteBudget() <= 0L
+            ) {
+                return null
+            }
+
+            val bytes = fetchRange(
+                sourceUrl = sourceUrl,
+                sourceHeaders = sourceHeaders,
+                start = state.position,
+                length = 16,
+                requirePartialContent = state.position > 0L,
+                stats = stats,
+            )?.bytes ?: return null
+            val header = PgsCueSemanticParser.readElementHeader(bytes, 0) ?: return null
+
+            if (header.id == ID_SIMPLE_BLOCK || header.id == ID_BLOCK_GROUP) {
+                state.seenBlocks++
+                state.resolved[state.seenBlocks] = state.position
+                if (state.seenBlocks == blockNumber) return state.position
+            }
+
+            val size = header.size ?: return null
+            val next = state.position + header.dataStart.toLong() + size
+            if (next <= state.position || next > clusterEnd) return null
+            state.position = next
+        }
+        return null
     }
 
     private suspend fun loadMatroskaCueIndex(
@@ -2397,6 +2424,12 @@ internal object EmbeddedSubtitleTimelineLoader {
     private data class RangeResponse(
         val bytes: ByteArray,
         val totalLength: Long?,
+    )
+
+    private data class PgsBlockScanState(
+        var position: Long,
+        var seenBlocks: Long = 0L,
+        val resolved: MutableMap<Long, Long> = mutableMapOf(),
     )
 
     private data class SparseRange(
