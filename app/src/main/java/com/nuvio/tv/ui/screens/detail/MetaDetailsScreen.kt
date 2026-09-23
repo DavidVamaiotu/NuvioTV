@@ -2478,7 +2478,8 @@ private fun MetaDetailsContent(
                             onScrollToEpisodeHandled = {
                                 initialEpisodeScrollDone = true
                             },
-                            anchorEpisodeId = lastFocusedEpisodeIdBySeason[selectedSeason]
+                            anchorEpisodeId = lastFocusedEpisodeIdBySeason[selectedSeason],
+                            windowResetKey = meta.id
                         )
                     }
             }
@@ -2546,6 +2547,7 @@ private fun MetaDetailsContent(
                                     onCastMemberFocused = {
                                         restorePinnedDetailPageIfNudge()
                                     },
+                                    windowResetKey = meta.id,
                                     onCastMemberClick = { member ->
                                         member.tmdbId?.let { id ->
                                             markCastMemberRestore(id)
@@ -2583,6 +2585,7 @@ private fun MetaDetailsContent(
                                         markMoreLikeThisRestore(item.id)
                                         onNavigateToDetail(item.id, item.apiType, null)
                                     },
+                                    windowResetKey = meta.id,
                                     onItemLongPress = { item ->
                                         onPosterLongPress(item)
                                     }
@@ -2598,6 +2601,7 @@ private fun MetaDetailsContent(
                                     restoreTrailerId = if (restoreSharedTrailerFocusToken > 0) selectedSharedTrailer?.ytId else null,
                                     restoreFocusToken = restoreSharedTrailerFocusToken,
                                     onRestoreFocusHandled = onSharedTrailerFocusRestored,
+                                    windowResetKey = meta.id,
                                     onTrailerClick = { trailer ->
                                         onSharedTrailerSelected(trailer)
                                     }
@@ -2627,6 +2631,7 @@ private fun MetaDetailsContent(
                                         markCollectionRestore(item.id)
                                         onNavigateToDetail(item.id, item.apiType, null)
                                     },
+                                    windowResetKey = meta.id,
                                     onItemLongPress = { item ->
                                         onPosterLongPress(item)
                                     }
@@ -2691,6 +2696,7 @@ private fun MetaDetailsContent(
                             onNavigateToDetail(item.id, item.apiType, null)
                         },
                         isItemWatched = { item -> relatedWatchedStatus["${item.id}|${item.apiType}"] == true },
+                        windowResetKey = meta.id,
                         onItemLongPress = { item ->
                             onPosterLongPress(item)
                         }
@@ -2725,6 +2731,7 @@ private fun MetaDetailsContent(
                         onEpisodeSelected = onCommentsEpisodeSelected,
                         onCommentClick = onCommentClick,
                         listState = commentsListState,
+                        windowResetKey = meta.id,
                         rowEntryFocusRequester = commentsRowEntryFocusRequester,
                         modifier = Modifier
                     )
@@ -2744,6 +2751,7 @@ private fun MetaDetailsContent(
                             upFocusRequester = if (shouldShowCommentsSection) commentsRowEntryFocusRequester else null,
                             sectionFocusRequester = networkSectionFocusRequester,
                             allowPageScroll = ::allowCompanyPageScroll,
+                            windowResetKey = meta.id,
                             onCompanyClick = { company ->
                                 company.tmdbId?.let { entityId ->
                                     markCompanyRestore(entityId)
@@ -2766,6 +2774,7 @@ private fun MetaDetailsContent(
                             upFocusRequester = if (shouldShowCommentsSection && meta.networks.isEmpty()) commentsRowEntryFocusRequester else null,
                             sectionFocusRequester = productionSectionFocusRequester,
                             allowPageScroll = ::allowCompanyPageScroll,
+                            windowResetKey = meta.id,
                             onCompanyClick = { company ->
                                 company.tmdbId?.let { entityId ->
                                     markCompanyRestore(entityId)
@@ -2788,6 +2797,7 @@ private fun MetaDetailsContent(
                             upFocusRequester = if (shouldShowCommentsSection) commentsRowEntryFocusRequester else null,
                             sectionFocusRequester = productionSectionFocusRequester,
                             allowPageScroll = ::allowCompanyPageScroll,
+                            windowResetKey = meta.id,
                             onCompanyClick = { company ->
                                 company.tmdbId?.let { entityId ->
                                     markCompanyRestore(entityId)
@@ -2810,6 +2820,7 @@ private fun MetaDetailsContent(
                             upFocusRequester = if (shouldShowCommentsSection && meta.productionCompanies.isEmpty()) commentsRowEntryFocusRequester else null,
                             sectionFocusRequester = networkSectionFocusRequester,
                             allowPageScroll = ::allowCompanyPageScroll,
+                            windowResetKey = meta.id,
                             onCompanyClick = { company ->
                                 company.tmdbId?.let { entityId ->
                                     markCompanyRestore(entityId)

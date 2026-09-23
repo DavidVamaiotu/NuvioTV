@@ -122,7 +122,8 @@ fun CommentsSection(
     onCommentClick: (TraktCommentReview) -> Unit,
     listState: LazyListState,
     rowEntryFocusRequester: FocusRequester? = null,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    windowResetKey: String? = null
 ) {
     val cardShape = RoundedCornerShape(NuvioTheme.radii.xl)
     val isRtl = LocalLayoutDirection.current == LayoutDirection.Rtl
@@ -141,9 +142,15 @@ fun CommentsSection(
     } else {
         resolvedTitleModeFocusRequester
     }
-    val visibleFirstCommentId = remember(comments, listState.firstVisibleItemIndex) {
-        comments.getOrNull(max(listState.firstVisibleItemIndex, 0))?.id
-    }
+    val commentsScrollResetKey = "${commentsMode.name}:${selectedEpisode?.id.orEmpty()}"
+    val commentWindowIds = remember(comments) { comments.map { it.id.toString() } }
+    val anchoredCommentId = listState.keepDetailRowWindow(
+        itemIds = commentWindowIds,
+        lazyKeyAt = { index -> comments.getOrNull(index)?.id },
+        resetKey = "${windowResetKey.orEmpty()}:$commentsScrollResetKey"
+    )
+    val visibleFirstCommentId = anchoredCommentId?.toLongOrNull()
+        ?: comments.getOrNull(max(listState.firstVisibleItemIndex, 0))?.id
     val hasFocusableCommentContent = isLoading || !error.isNullOrBlank() || comments.isNotEmpty()
     val commentsFocusTargetId = if (!hasFocusableCommentContent) {
         null
@@ -208,7 +215,6 @@ fun CommentsSection(
         }
     }
 
-    val commentsScrollResetKey = "${commentsMode.name}:${selectedEpisode?.id.orEmpty()}"
     var appliedCommentsScrollResetKey by rememberSaveable { mutableStateOf(commentsScrollResetKey) }
     LaunchedEffect(commentsScrollResetKey) {
         if (appliedCommentsScrollResetKey == commentsScrollResetKey) return@LaunchedEffect

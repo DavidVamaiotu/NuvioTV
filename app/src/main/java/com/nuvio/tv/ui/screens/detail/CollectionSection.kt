@@ -55,9 +55,19 @@ fun CollectionSection(
     onItemFocused: (MetaPreview) -> Unit = {},
     onItemClick: (MetaPreview) -> Unit,
     onItemLongPress: (MetaPreview) -> Unit = {},
-    isItemWatched: (MetaPreview) -> Boolean = { false }
+    isItemWatched: (MetaPreview) -> Boolean = { false },
+    windowResetKey: String? = null
 ) {
     if (items.isEmpty()) return
+
+    val itemIds = remember(items) { items.map { it.id } }
+    listState.keepDetailRowWindow(
+        itemIds = itemIds,
+        lazyKeyAt = { index ->
+            items.getOrNull(index)?.let { previewRowLazyKey(index, it.id, it.name) }
+        },
+        resetKey = windowResetKey
+    )
 
     val firstItemFocusRequester = remember { FocusRequester() }
     val restoreFocusRequester = remember { FocusRequester() }
@@ -127,7 +137,7 @@ fun CollectionSection(
         ) {
             itemsIndexed(
                 items = items,
-                key = { index, item -> item.id + "|" + item.name + "|" + index }
+                key = { index, item -> previewRowLazyKey(index, item.id, item.name) }
             ) { index, item ->
                 val isRestoreTarget = item.id == restoreItemId
                 val isFirstItem = index == 0

@@ -10,6 +10,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.remember
@@ -50,7 +51,8 @@ fun TrailerSection(
     restoreFocusToken: Int = 0,
     onRestoreFocusHandled: () -> Unit = {},
     onTrailerFocused: (MetaTrailer) -> Unit = {},
-    onTrailerClick: (MetaTrailer) -> Unit
+    onTrailerClick: (MetaTrailer) -> Unit,
+    windowResetKey: String? = null
 ) {
     if (trailers.isEmpty()) return
 
@@ -120,7 +122,17 @@ fun TrailerSection(
             .fillMaxWidth()
             .padding(top = NuvioTheme.spacing.sm, bottom = NuvioTheme.spacing.sm)
     ) {
+        val trailerListState = rememberLazyListState()
+        val trailerIds = remember(trailerItems) { trailerItems.map { it.preview.id } }
+        trailerListState.keepDetailRowWindow(
+            itemIds = trailerIds,
+            lazyKeyAt = { index ->
+                trailerItems.getOrNull(index)?.let { previewRowLazyKey(index, it.preview.id, it.preview.name) }
+            },
+            resetKey = windowResetKey
+        )
         LazyRow(
+            state = trailerListState,
             modifier = Modifier
                 .fillMaxWidth()
                 .then(if (sectionFocusRequester != null) Modifier.focusRequester(sectionFocusRequester) else Modifier)
@@ -131,7 +143,7 @@ fun TrailerSection(
         ) {
             itemsIndexed(
                 items = trailerItems,
-                key = { index, item -> item.preview.id + "|" + item.preview.name + "|" + index }
+                key = { index, item -> previewRowLazyKey(index, item.preview.id, item.preview.name) }
             ) { index, item ->
                 val isRestoreTarget = item.preview.id == restoreTrailerId
                 val isFirstItem = index == 0

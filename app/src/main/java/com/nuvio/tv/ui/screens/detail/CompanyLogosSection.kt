@@ -46,6 +46,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
@@ -71,10 +72,20 @@ fun CompanyLogosSection(
     onCompanyFocused: (revealOverflowPx: Float) -> Unit = {},
     upFocusRequester: FocusRequester? = null,
     sectionFocusRequester: FocusRequester? = null,
-    allowPageScroll: () -> Boolean = { false }
+    allowPageScroll: () -> Boolean = { false },
+    windowResetKey: String? = null
 ) {
     if (companies.isEmpty()) return
 
+    val rowListState = rememberLazyListState()
+    val companyWindowIds = remember(companies) { companies.map { companyWindowId(it) } }
+    rowListState.keepDetailRowWindow(
+        itemIds = companyWindowIds,
+        lazyKeyAt = { index ->
+            companies.getOrNull(index)?.let { companyLazyKey(title, index, it) }
+        },
+        resetKey = windowResetKey
+    )
     val focusRequesters = remember(companies) {
         companies
             .mapNotNull { company -> company.tmdbId?.let { it to FocusRequester() } }
@@ -137,14 +148,13 @@ fun CompanyLogosSection(
 
         LazyRow(
             modifier = Modifier.fillMaxWidth(),
+            state = rowListState,
             contentPadding = PaddingValues(horizontal = NuvioTheme.spacing.xxxl, vertical = 6.dp),
             horizontalArrangement = Arrangement.spacedBy(NuvioTheme.spacing.md)
         ) {
             itemsIndexed(
                 items = companies,
-                key = { index, company ->
-                    "$title-$index-${company.name}-${company.logo.orEmpty()}"
-                }
+                key = { index, company -> companyLazyKey(title, index, company) }
             ) { index, company ->
                 Box(
                     modifier = Modifier.bringIntoViewResponder(
@@ -166,6 +176,12 @@ fun CompanyLogosSection(
         }
     }
 }
+
+private fun companyWindowId(company: MetaCompany): String =
+    "${company.tmdbId ?: company.name}:${company.name}"
+
+private fun companyLazyKey(title: String, index: Int, company: MetaCompany): String =
+    "$title-$index-${company.name}-${company.logo.orEmpty()}"
 
 @Composable
 private fun CompanyLogoCard(

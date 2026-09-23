@@ -302,7 +302,8 @@ fun EpisodesRow(
     onEpisodeFocused: (episodeId: String) -> Unit = {},
     scrollToEpisodeId: String? = null,
     onScrollToEpisodeHandled: () -> Unit = {},
-    anchorEpisodeId: String? = null
+    anchorEpisodeId: String? = null,
+    windowResetKey: String? = null
 ) {
     val dedupedEpisodes = remember(episodes) { episodes.distinctBy { it.id } }
     val restoreTargetRequester = restoreEpisodeId?.let { episodeFocusRequesters[it] }
@@ -323,6 +324,12 @@ fun EpisodesRow(
     val lazyListState = rememberLazyListState(
         initialFirstVisibleItemIndex = initialEpisodeIndex,
         prefetchStrategy = rowPrefetchStrategy
+    )
+    val episodeWindowIds = remember(dedupedEpisodes) { dedupedEpisodes.map { it.id } }
+    lazyListState.keepDetailRowWindow(
+        itemIds = episodeWindowIds,
+        lazyKeyAt = { index -> dedupedEpisodes.getOrNull(index)?.id },
+        resetKey = windowResetKey
     )
     var lastHorizontalKeyRepeatTime by remember { mutableStateOf(0L) }
     val episodeIds = remember(dedupedEpisodes) { dedupedEpisodes.mapTo(mutableSetOf()) { it.id } }

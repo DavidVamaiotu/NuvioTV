@@ -84,9 +84,17 @@ fun CastSection(
     onLastFocusedPersonKeyChange: (String) -> Unit = {},
     onRestoreFocusHandled: () -> Unit = {},
     onCastMemberFocused: (MetaCastMember) -> Unit = {},
-    onCastMemberClick: (MetaCastMember) -> Unit = {}
+    onCastMemberClick: (MetaCastMember) -> Unit = {},
+    windowResetKey: String? = null
 ) {
     if (cast.isEmpty() && leadingCast.isEmpty()) return
+
+    val castIds = remember(leadingCast, cast) { castWindowIds(leadingCast, cast) }
+    listState.keepDetailRowWindow(
+        itemIds = castIds,
+        lazyKeyAt = { index -> castLazyKeyAt(index, leadingCast, cast) },
+        resetKey = windowResetKey
+    )
 
     val firstItemFocusRequester = remember { FocusRequester() }
     val itemFocusRequesters = remember { mutableMapOf<String, FocusRequester>() }
@@ -247,9 +255,7 @@ fun CastSection(
             if (leadingCast.isNotEmpty()) {
                 itemsIndexed(
                     items = leadingCast,
-                    key = { index, member ->
-                        "leading|" + index + "|" + (member.tmdbId?.toString() ?: member.name) + "|" + (member.character ?: "") + "|" + (member.photo ?: "")
-                    }
+                    key = { index, member -> leadingCastLazyKey(index, member) }
                 ) { index, member ->
                     val isLastLeading = member == leadingCast.last()
                     val endPadding = if (isLastLeading && cast.isNotEmpty()) NuvioTheme.spacing.none else standardGap
@@ -284,7 +290,7 @@ fun CastSection(
             }
 
             if (leadingCast.isNotEmpty() && cast.isNotEmpty()) {
-                item(key = "role_divider") {
+                item(key = CAST_ROLE_DIVIDER_ID) {
                     Box(
                         modifier = Modifier.height(cardSize),
                         contentAlignment = Alignment.Center
@@ -302,9 +308,7 @@ fun CastSection(
 
             itemsIndexed(
                 items = cast,
-                key = { index, member ->
-                    index.toString() + "|" + (member.tmdbId?.toString() ?: member.name) + "|" + (member.character ?: "") + "|" + (member.photo ?: "")
-                }
+                key = { index, member -> castMemberLazyKey(index, member) }
             ) { index, member ->
                 val isRestoreTarget = member.tmdbId == restorePersonId
                 val isFirstCastItem = index == 0 && leadingCast.isEmpty()
@@ -334,6 +338,48 @@ fun CastSection(
                     )
                 }
             }
+        }
+    }
+}
+
+private const val CAST_ROLE_DIVIDER_ID = "role_divider"
+
+private fun castMemberWindowId(member: MetaCastMember, leading: Boolean): String {
+    val prefix = if (leading) "leading" else "cast"
+    return "$prefix:${member.tmdbId ?: member.name}:${member.character.orEmpty()}"
+}
+
+private fun castWindowIds(
+    leadingCast: List<MetaCastMember>,
+    cast: List<MetaCastMember>,
+): List<String> {
+    val ids = ArrayList<String>(leadingCast.size + cast.size + 1)
+    leadingCast.forEach { member -> ids += castMemberWindowId(member, leading = true) }
+    if (leadingCast.isNotEmpty() && cast.isNotEmpty()) ids += CAST_ROLE_DIVIDER_ID
+    cast.forEach { member -> ids += castMemberWindowId(member, leading = false) }
+    return ids
+}
+
+private fun leadingCastLazyKey(index: Int, member: MetaCastMember): String =
+    "leading|" + index + "|" + (member.tmdbId?.toString() ?: member.name) + "|" +
+        (member.character ?: "") + "|" + (member.photo ?: "")
+
+private fun castMemberLazyKey(index: Int, member: MetaCastMember): String =
+    index.toString() + "|" + (member.tmdbId?.toString() ?: member.name) + "|" +
+        (member.character ?: "") + "|" + (member.photo ?: "")
+
+private fun castLazyKeyAt(
+    index: Int,
+    leadingCast: List<MetaCastMember>,
+    cast: List<MetaCastMember>,
+): Any? {
+    val hasDivider = leadingCast.isNotEmpty() && cast.isNotEmpty()
+    return when {
+        index < leadingCast.size -> leadingCast.getOrNull(index)?.let { leadingCastLazyKey(index, it) }
+        hasDivider && index == leadingCast.size -> CAST_ROLE_DIVIDER_ID
+        else -> {
+            val castIndex = index - leadingCast.size - if (hasDivider) 1 else 0
+            cast.getOrNull(castIndex)?.let { castMemberLazyKey(castIndex, it) }
         }
     }
 }
