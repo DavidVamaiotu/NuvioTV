@@ -1,5 +1,7 @@
 name: Trigger AutoSync TV Stable Release
 
+# Trigger: rebuild stable AutoSync after dependency fix
+
 on:
   workflow_dispatch:
   push:
