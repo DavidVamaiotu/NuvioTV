@@ -967,6 +967,7 @@ internal fun PlayerRuntimeController.initializePlayer(
                     delegate = effectiveExtractorsFactory,
                     sourceKey = url,
                 )
+            prefetchAutoSyncIndex(url, headers)
 
             setLoadingStatus(
                 phase = "building_player",
