@@ -1355,8 +1355,6 @@
     <string name="tmdb_basic_info_subtitle">TMDB\'den açıklama, türler ve derecelendirme</string>
     <string name="tmdb_details_title">Detaylar</string>
     <string name="tmdb_details_subtitle">TMDB\'den çalışma zamanı, çıkış tarihi, ülke ve dil</string>
-    <string name="tmdb_release_dates_title">Yayın Tarihleri</string>
-    <string name="tmdb_release_dates_subtitle">TMDB\'den çıkış ve yayın tarihleri</string>
     <string name="tmdb_credits_title">Film Ekibi</string>
     <string name="tmdb_credits_subtitle">TMDB\'den fotoğraflı aktörler, yönetmen ve yazar</string>
     <string name="tmdb_productions_title">Yapım Şirketleri</string>

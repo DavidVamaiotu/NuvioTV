@@ -404,18 +404,8 @@ class ProfileSettingsSyncService @Inject constructor(
         signature: String
     ) {
         val isActiveProfile = profileManager.activeProfileId.value == profileId
-        val previousUseReleaseDates = if (isActiveProfile) {
-            tmdbSettingsDataStore.settings.first().useReleaseDates
-        } else {
-            null
-        }
         importSettingsBlob(profileId, featuresJson)
         if (isActiveProfile) {
-            val currentUseReleaseDates = tmdbSettingsDataStore.settings.first().useReleaseDates
-            if (previousUseReleaseDates != currentUseReleaseDates) {
-                metaRepository.clearCache()
-                cwEnrichmentCache.clearAll()
-            }
             skipNextPushSignature = signature
         }
     }

@@ -1220,8 +1220,6 @@
     <string name="tmdb_basic_info_subtitle">Përshkrimi, zhanret dhe vlerësimi nga TMDB</string>
     <string name="tmdb_details_title">Detajet</string>
     <string name="tmdb_details_subtitle">Kohëzgjatja, statusi, shteti dhe gjuha nga TMDB</string>
-    <string name="tmdb_release_dates_title">Datat e publikimit</string>
-    <string name="tmdb_release_dates_subtitle">Datat e publikimit dhe transmetimit nga TMDB</string>
     <string name="tmdb_credits_title">Kreditet</string>
     <string name="tmdb_credits_subtitle">Aktorët me fotografi, regjisori dhe skenaristi nga TMDB</string>
     <string name="tmdb_productions_title">Produksionet</string>

@@ -801,8 +801,6 @@
     <string name="tmdb_basic_info_subtitle">Описание, жанры и рейтинг из TMDB</string>
     <string name="tmdb_details_title">Детали</string>
     <string name="tmdb_details_subtitle">Длительность, статус, страна и язык из TMDB</string>
-    <string name="tmdb_release_dates_title">Даты выхода</string>
-    <string name="tmdb_release_dates_subtitle">Даты релиза и выхода в эфир из TMDB</string>
     <string name="tmdb_credits_title">Создатели</string>
     <string name="tmdb_credits_subtitle">Актеры с фото, режиссер и сценарист из TMDB</string>
     <string name="tmdb_productions_title">Производство</string>

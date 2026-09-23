@@ -1052,8 +1052,6 @@
     <string name="tmdb_basic_info_subtitle">Popis, žánre a hodnotenie z TMDB</string>
     <string name="tmdb_details_title">Detaily</string>
     <string name="tmdb_details_subtitle">Dĺžka, stav, krajina a jazyk z TMDB</string>
-    <string name="tmdb_release_dates_title">Dátumy vydania</string>
-    <string name="tmdb_release_dates_subtitle">Dátumy vydania a vysielania z TMDB</string>
     <string name="tmdb_credits_title">Obsadenie a tvorcovia</string>
     <string name="tmdb_credits_subtitle">Obsadenie s fotkami, režisér a scenárista z TMDB</string>
     <string name="tmdb_productions_title">Produkcie</string>

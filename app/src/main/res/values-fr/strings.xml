@@ -848,8 +848,6 @@
     <string name="tmdb_basic_info_subtitle">Description, genres et note depuis TMDB</string>
     <string name="tmdb_details_title">Détails</string>
     <string name="tmdb_details_subtitle">Durée, date de sortie, pays et langue depuis TMDB</string>
-    <string name="tmdb_release_dates_title">Dates de sortie</string>
-    <string name="tmdb_release_dates_subtitle">Dates de sortie et de diffusion depuis TMDB</string>
     <string name="tmdb_credits_title">Crédits</string>
     <string name="tmdb_credits_subtitle">Casting avec photos, réalisateur et scénariste depuis TMDB</string>
     <string name="tmdb_productions_title">Productions</string>

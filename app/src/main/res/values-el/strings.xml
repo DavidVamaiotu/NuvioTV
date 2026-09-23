@@ -1146,8 +1146,6 @@
   <string name="tmdb_basic_info_subtitle">Περιγραφή, είδη και βαθμολογία από το TMDB</string>
   <string name="tmdb_details_title">Λεπτομέρειες</string>
   <string name="tmdb_details_subtitle">Διάρκεια, ημερομηνία κυκλοφορίας, χώρα και γλώσσα από το TMDB</string>
-  <string name="tmdb_release_dates_title">Ημερομηνίες κυκλοφορίας</string>
-  <string name="tmdb_release_dates_subtitle">Ημερομηνίες κυκλοφορίας και προβολής από το TMDB</string>
   <string name="tmdb_credits_title">Συντελεστές</string>
   <string name="tmdb_credits_subtitle">Ηθοποιοί με φωτογραφίες, σκηνοθέτης και σεναριογράφος από το TMDB</string>
   <string name="tmdb_productions_title">Παραγωγές</string>

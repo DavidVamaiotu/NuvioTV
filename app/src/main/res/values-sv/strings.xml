@@ -1344,8 +1344,6 @@
     <string name="layout_memory_only_scroll_sub">Hoppa över laddning av nya bilder vid vertikal rullning.</string>
 
     <!-- TmdbSettingsScreen -->
-    <string name="tmdb_release_dates_title">Premiärdatum</string>
-    <string name="tmdb_release_dates_subtitle">Premiärdatum och sändningsdatum från TMDB</string>
     <string name="tmdb_trailers_title">Trailers</string>
     <string name="tmdb_trailers_subtitle">Trailerkandidater från TMDB-videor för trailer-sektionen på detaljsidan</string>
 

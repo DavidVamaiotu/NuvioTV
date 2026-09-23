@@ -132,9 +132,9 @@
     <string name="error_meta_tried_generic">Đã thử tiện ích siêu dữ liệu: %1$s. Không thể tải siêu dữ liệu cho id=%2$s (type=%3$s).</string>
     <string name="error_meta_tried_issues">Đã thử tiện ích siêu dữ liệu: %1$s. Không thể tải siêu dữ liệu cho id=%2$s (type=%3$s). Lỗi: %4$s.</string>
     <string name="error_stream_no_supported_addon">Không có tiện ích đã cài đặt nào hỗ trợ luồng phát cho \"%1$s\".</string>
-    <string name="error_stream_tried_none">Đã thử các tiện ích nguồn phát: %1$s. Không có tiện ích nào tìm thấy luồng phát cho id=%2$s (type=%3$s).</string>
-    <string name="error_stream_tried_generic">Đã thử các tiện ích nguồn phát: %1$s. Không thể tải luồng phát cho id=%2$s (type=%3$s).</string>
-    <string name="error_stream_tried_issues">Đã thử các tiện ích nguồn phát: %1$s. Không thể tải luồng phát cho id=%2$s (type=%3$s). Lỗi: %4$s.</string>
+    <string name="error_stream_tried_none">Đã thử các tiện ích phát trực tuyến: %1$s. Không có tiện ích nào tìm thấy luồng phát cho id=%2$s (type=%3$s).</string>
+    <string name="error_stream_tried_generic">Đã thử các tiện ích phát trực tuyến: %1$s. Không thể tải luồng phát cho id=%2$s (type=%3$s).</string>
+    <string name="error_stream_tried_issues">Đã thử các tiện ích phát trực tuyến: %1$s. Không thể tải luồng phát cho id=%2$s (type=%3$s). Lỗi: %4$s.</string>
 
     <string name="continue_watching">Tiếp tục xem</string>
     <string name="cw_upcoming">Sắp chiếu</string>
@@ -612,7 +612,7 @@
     <string name="advanced_rgb565">Giải mã hình ảnh RGB565</string>
     <string name="advanced_rgb565_subtitle">Dùng màu 16 bit để tiết kiệm bộ nhớ cho các hình ảnh không trong suốt. Thay đổi tùy chọn này sẽ khởi động lại ứng dụng.</string>
     <string name="advanced_memory_only_vertical_scroll">Cuộn dọc chỉ trong bộ nhớ:</string>
-    <string name="advanced_memory_only_vertical_scroll_subtitle">Bỏ qua các yêu cầu tải ảnh từ ổ đĩa và mạng trong khi cuộn dọc qua các hàng trên trang chủ.</string>
+    <string name="advanced_memory_only_vertical_scroll_subtitle">Bỏ qua các yêu cầu tải ảnh từ đĩa và mạng trong khi cuộn dọc qua các hàng trên trang chủ.</string>
     <string name="advanced_compose_highlighter">Bộ tô sáng Compose</string>
     <string name="advanced_compose_highlighter_subtitle">Nhấp nháy viền quanh các thành phần giao diện đang được tái cấu trúc để gỡ lỗi hiệu năng.</string>
     <string name="advanced_clear_cw_cache">Xóa bộ nhớ đệm Tiếp tục xem</string>
@@ -1153,12 +1153,35 @@
     <string name="web_custom_poster_placeholders_info">Các biến giữ chỗ: {id} truyền tất cả ID nội dung. {imdb_id}, {tmdb_id}, {tvdb_id}, {kitsu_id} nhắm đến một loại ID duy nhất — nếu không có, poster gốc sẽ được giữ lại. {imdb_id|tmdb_id|kitsu_id} khai báo các loại ID được hỗ trợ — loại phù hợp sẽ được sử dụng, nếu không có thì poster gốc sẽ được giữ lại. Thêm ? để biến giữ chỗ trở thành tùy chọn, khi đó biến sẽ được thay bằng giá trị trống thay vì bỏ qua: {imdb_id?}. Các biến giữ chỗ khác: {id_type}, {typed_id}, {type}, {shape}.</string>
 
 
+    <string name="mdblist_name">MDBList</string>
+    <string name="mdblist_tracking_description">Đồng bộ lịch sử đã xem và tiến trình phát lại trên các thiết bị</string>
+    <string name="mdblist_connected_as">Đã kết nối với %1$s</string>
+    <string name="mdblist_account_fallback">Người dùng MDBList</string>
+    <string name="mdblist_insufficient_scope">MDBList chưa cấp quyền cập nhật lịch sử xem. Hãy kết nối lại và cho phép quyền ghi.</string>
+    <string name="mdblist_awaiting_instruction">Quét mã QR hoặc nhập mã này tại địa chỉ bên dưới.</string>
+    <string name="mdblist_qr_description">Mã QR để kết nối tài khoản MDBList của bạn</string>
+    <string name="mdblist_status_enter_code">Phê duyệt kết nối trong tài khoản MDBList của bạn.</string>
+    <string name="mdblist_status_syncing">Đang đồng bộ lịch sử đã xem và tiến trình phát lại…</string>
+    <string name="mdblist_last_synced">Đồng bộ lần cuối %1$s</string>
+    <string name="mdblist_disconnect_title">Ngắt kết nối MDBList?</string>
+    <string name="mdblist_disconnect_subtitle">Dừng gửi cập nhật xem từ hồ sơ này. Lịch sử MDBList của bạn vẫn được giữ lại.</string>
+    <string name="mdblist_missing_client">Kết nối MDBList không có sẵn trong bản dựng này.</string>
+    <string name="mdblist_invalid_response">MDBList trả về phản hồi chưa đầy đủ. Vui lòng thử lại.</string>
+    <string name="mdblist_code_expired">Mã này đã hết hạn. Vui lòng thử lại để nhận mã mới.</string>
+    <string name="mdblist_access_denied">Kết nối bị từ chối. Vui lòng thử lại để kết nối tài khoản của bạn.</string>
+    <string name="mdblist_authorization_revoked">Kết nối MDBList của bạn đã hết hạn hoặc bị thu hồi. Vui lòng kết nối lại để tiếp tục đồng bộ.</string>
+    <string name="mdblist_unavailable">Không thể đồng bộ với MDBList. Vui lòng thử lại.</string>
+    <string name="mdblist_rate_limited">Đã đạt giới hạn yêu cầu của MDBList. Quá trình đồng bộ sẽ tiếp tục sau khi giới hạn được đặt lại.</string>
+    <string name="mdblist_revoke_failed">Đã ngắt kết nối trên thiết bị này. Vui lòng xóa ứng dụng trong phần cài đặt tài khoản MDBList để thu hồi quyền truy cập.</string>
     <string name="mdblist_title">Điểm đánh giá MDBList</string>
     <string name="mdblist_subtitle">Cấu hình các điểm đánh giá bên ngoài hiển thị trong chi tiết của Khu vực Nổi bật</string>
     <string name="mdblist_enable_title">Bật điểm đánh giá MDBList</string>
     <string name="mdblist_enable_subtitle">Lấy điểm đánh giá từ các nhà cung cấp bên ngoài trên màn hình chi tiết siêu dữ liệu</string>
     <string name="mdblist_api_key_title">Mã khóa API</string>
     <string name="mdblist_api_key_subtitle">Cần thiết để lấy điểm đánh giá từ MDBList</string>
+    <string name="mdblist_ratings_credentials_subtitle">Sử dụng tài khoản MDBList đã kết nối trong mục Theo dõi hoặc nhập mã khóa API riêng để đánh giá.</string>
+    <string name="mdblist_ratings_connected_account">Đang sử dụng tài khoản đã kết nối</string>
+    <string name="mdblist_ratings_key_override_subtitle">Mã khóa API sẽ thay thế tài khoản đã kết nối khi đánh giá. Xóa mã này để sử dụng lại tài khoản đã kết nối.</string>
     <string name="mdblist_trakt_title">Trakt</string>
     <string name="mdblist_trakt_subtitle">Hiển thị điểm Trakt</string>
     <string name="mdblist_imdb_title">IMDb</string>
@@ -1372,8 +1395,6 @@
     <string name="tmdb_basic_info_subtitle">Mô tả, thể loại và điểm đánh giá từ TMDB</string>
     <string name="tmdb_details_title">Chi tiết</string>
     <string name="tmdb_details_subtitle">Thời lượng, trạng thái, quốc gia và ngôn ngữ từ TMDB</string>
-    <string name="tmdb_release_dates_title">Ngày phát hành</string>
-    <string name="tmdb_release_dates_subtitle">Ngày phát hành và lên sóng từ TMDB</string>
     <string name="tmdb_credits_title">Danh đề</string>
     <string name="tmdb_credits_subtitle">Diễn viên kèm ảnh, đạo diễn và biên kịch từ TMDB</string>
     <string name="tmdb_productions_title">Hãng sản xuất</string>
@@ -2500,7 +2521,7 @@
     <string name="collections_editor_focus_glow">Viền sáng khi chọn</string>
     <string name="collections_editor_focus_glow_desc">Sử dụng hiệu ứng phát sáng gốc của TV gốc cho các thẻ danh mục tùy chỉnh trên màn hình chính của bộ sưu tập này</string>
     <string name="collections_editor_view_mode">Chế độ hiển thị</string>
-    <string name="collections_editor_show_all_tab">Hiển thị thẻ \"Tất cả\"</string>
+    <string name="collections_editor_show_all_tab">Hiển thị thẻ &quot;Tất cả&quot;</string>
     <string name="collections_editor_show_all_tab_desc">Gộp tất cả danh mục vào một thẻ</string>
     <string name="collections_editor_folders">Thư mục</string>
     <string name="collections_editor_add_folder">Thêm thư mục</string>
@@ -3129,18 +3150,19 @@
     <string name="playback_buffer_target_danger_warning">Nguy hiểm: vượt quá giới hạn cảnh báo (%1$d MB). Nguy cơ lỗi rất cao.</string>
     <string name="playback_buffer_allow_large">Cho phép bộ đệm mục tiêu lớn hơn</string>
     <string name="playback_buffer_allow_large_sub">Gỡ bỏ giới hạn bộ nhớ thiết bị trên thanh trượt dung lượng bộ đệm mục tiêu, cho phép các giá trị lên đến 2 GB. Có thể gây lỗi trên thiết bị có dưới 2 GB RAM.</string>
-    <string name="playback_cache_header">Bộ nhớ đệm ổ đĩa</string>
-    <string name="playback_cache_vod">Bộ nhớ đệm VOD ổ đĩa</string>
-    <string name="playback_cache_vod_sub">Lưu các bytes đã tải xuống vào ổ đĩa cho luồng phát hiện tại. Tính năng này giúp mở rộng khả năng tua ngược tức thì vượt ra ngoài giới hạn của bộ nhớ đệm ngược trên RAM và giúp duy trì phát video khi mạng bị ngắt kết nối trong thời gian ngắn. Chỉ áp dụng cho các luồng phát lũy tiến (không áp dụng cho HLS/DASH).</string>
+    <string name="playback_cache_header">Bộ nhớ đệm đĩa</string>
+    <string name="playback_cache_vod">Bộ nhớ đệm VOD trên đĩa</string>
+    <string name="playback_cache_vod_sub">Lưu các bytes đã tải xuống vào đĩa cho luồng phát hiện tại. Tính năng này giúp mở rộng khả năng tua ngược tức thì vượt ra ngoài giới hạn của bộ nhớ đệm ngược trên RAM và giúp duy trì phát video khi mạng bị ngắt kết nối trong thời gian ngắn. Chỉ áp dụng cho các luồng phát lũy tiến (không áp dụng cho HLS/DASH).</string>
     <string name="playback_cache_auto_size">Dung lượng tự động</string>
-    <string name="playback_cache_auto_size_sub">Khi bật, dung lượng bộ nhớ đệm được tính dựa trên dung lượng ổ đĩa trống. Tắt tùy chọn này để tự chọn dung lượng.</string>
+    <string name="playback_cache_auto_size_sub">Khi bật, dung lượng bộ nhớ đệm được tính dựa trên dung lượng đĩa trống. Tắt tùy chọn này để tự chọn dung lượng.</string>
     <string name="playback_cache_vod_size">Dung lượng bộ nhớ đệm VOD</string>
-    <string name="playback_cache_vod_size_sub">Dung lượng ổ đĩa tối đa dành cho bộ nhớ đệm VOD lũy tiến (các mục ít được sử dụng gần đây sẽ bị xóa trước).</string>
+    <string name="playback_cache_vod_size_sub">Dung lượng đĩa tối đa dành cho bộ nhớ đệm VOD lũy tiến (các mục ít được sử dụng gần đây sẽ bị xóa trước).</string>
     <string name="playback_cache_info_range">Phạm vi: %1$d-%2$d MB.</string>
     <string name="playback_cache_info_auto">Chế độ tự động sử dụng khoảng 10% dung lượng trống.</string>
     <string name="playback_cache_info_manual_headroom">Chế độ thủ công giữ lại khoảng %1$d MB dung lượng dự phòng.</string>
-    <string name="playback_cache_info_free_disk">Dung lượng ổ đĩa trống: %1$s.</string>
+    <string name="playback_cache_info_free_disk">Dung lượng đĩa trống: %1$s.</string>
     <string name="playback_cache_info_restart">Giới hạn bộ nhớ đệm mới sẽ có hiệu lực sau khi khởi động lại ứng dụng khi chuyển đổi giữa các chế độ hoặc dung lượng</string>
+    <string name="playback_cache_write_warning">Trên các thiết bị có bộ nhớ tích hợp sẵn, hoạt động ghi diễn ra liên tục và có thể làm hao mòn bộ nhớ theo thời gian.</string>
     <string name="playback_reset_to_default">Đặt lại</string>
     <string name="playback_net_custom">Mạng tùy chỉnh</string>
     <string name="playback_net_custom_sub">Sử dụng nhiều kết nối đồng thời để tải các luồng tiến dần. Khi tắt, chỉ sử dụng một kết nối.</string>
@@ -3174,8 +3196,15 @@
     <string name="diag_label_source_profile">Cấu hình nguồn</string>
     <string name="diag_label_conversions">Chuyển đổi</string>
     <string name="diag_label_signal_rewrites">Ghi đè tín hiệu</string>
+    <string name="diag_label_last_convert">Chuyển đổi lần cuối</string>
     <string name="diag_label_custom_buffers">Bộ đệm tùy chỉnh</string>
-    <string name="diag_label_custom_network_cache">Bộ nhớ đệm Mạng/Tùy chỉnh</string>
+    <string name="diag_label_custom_network_cache">Mạng/Bộ nhớ đệm tùy chỉnh</string>
+    <string name="diag_label_disk_cache">Bộ nhớ đệm đĩa</string>
+    <string name="diag_label_disk_cache_usage">Mức sử dụng bộ nhớ đệm đĩa</string>
+    <string name="diag_value_disk_cache_on">Bật - %1$s</string>
+    <string name="diag_value_disk_cache_unavailable">Không khả dụng</string>
+    <string name="diag_value_disk_cache_not_used">Tắt - không được dùng cho luồng này</string>
+    <string name="diag_value_disk_cache_usage">%1$s đã đọc, %2$s đã bị xóa</string>
     <string name="diag_section_outcome">Trạng thái đầu ra</string>
     <string name="diag_label_hdr_format_intended">Định dạng HDR (dự kiến)</string>
     <string name="diag_label_first_frame">Khung hình đầu tiên</string>

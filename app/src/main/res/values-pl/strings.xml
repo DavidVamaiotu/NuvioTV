@@ -562,8 +562,6 @@
     <string name="tmdb_basic_info_subtitle">Opis, gatunki i ocena z TMDB</string>
     <string name="tmdb_details_title">Szczegóły</string>
     <string name="tmdb_details_subtitle">Czas trwania, status, kraj i język z TMDB</string>
-    <string name="tmdb_release_dates_title">Daty premier</string>
-    <string name="tmdb_release_dates_subtitle">Daty premiery i emisji z TMDB</string>
     <string name="tmdb_credits_title">Obsada</string>
     <string name="tmdb_credits_subtitle">Obsada ze zdjęciami, reżyser i scenarzysta z TMDB</string>
     <string name="tmdb_productions_title">Produkcje</string>

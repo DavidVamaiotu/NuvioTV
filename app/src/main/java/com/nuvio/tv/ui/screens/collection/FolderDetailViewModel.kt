@@ -1203,11 +1203,6 @@ class FolderDetailViewModel @Inject constructor(
                             logo = finalEnrichment.logo ?: result.logo
                         )
                     }
-                    if (tmdbSettings.useReleaseDates) {
-                        result = result.copy(
-                            releaseInfo = finalEnrichment.releaseInfo ?: result.releaseInfo
-                        )
-                    }
                     if (tmdbSettings.useDetails) {
                         result = result.copy(
                             runtime = finalEnrichment.runtimeMinutes?.toString() ?: result.runtime,
@@ -1464,11 +1459,6 @@ class FolderDetailViewModel @Inject constructor(
                                     result = result.copy(
                                         background = enrichment.backdrop ?: result.background,
                                         logo = enrichment.logo ?: result.logo
-                                    )
-                                }
-                                if (tmdbSettings.useReleaseDates) {
-                                    result = result.copy(
-                                        releaseInfo = enrichment.releaseInfo ?: result.releaseInfo
                                     )
                                 }
                                 if (tmdbSettings.useDetails) {

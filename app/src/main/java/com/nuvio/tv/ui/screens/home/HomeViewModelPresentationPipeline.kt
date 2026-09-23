@@ -827,11 +827,6 @@ private fun HomeViewModel.updateCatalogItemWithTmdb(itemId: String, enrichment: 
                 status = enrichment.status ?: merged.status
             )
         }
-        if (currentTmdbSettings.useReleaseDates) {
-            merged = merged.copy(
-                releaseInfo = enrichment.releaseInfo ?: merged.releaseInfo
-            )
-        }
         return merged
     }
 
@@ -1010,12 +1005,6 @@ internal suspend fun HomeViewModel.enrichHeroItemsPipeline(
                                 ageRating = enrichment.ageRating ?: enriched.ageRating,
                                 country = enrichment.countries?.joinToString(", ") ?: enriched.country,
                                 language = enrichment.language ?: enriched.language
-                            )
-                        }
-
-                        if (settings.useReleaseDates) {
-                            enriched = enriched.copy(
-                                releaseInfo = enrichment.releaseInfo ?: enriched.releaseInfo
                             )
                         }
 

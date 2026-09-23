@@ -1103,8 +1103,6 @@
     <string name="tmdb_artwork_subtitle">الشعارات وصور الخلفية من TMDB</string>
     <string name="tmdb_basic_info_title">معلومات أساسية</string>
     <string name="tmdb_basic_info_subtitle">الوصف، التصنيفات، والتقييم من TMDB</string>
-    <string name="tmdb_release_dates_title">تواريخ الإصدار</string>
-    <string name="tmdb_release_dates_subtitle">تواريخ الإصدار والعرض من TMDB</string>
     <string name="tmdb_details_title">التفاصيل</string>
     <string name="tmdb_details_subtitle">مدة العرض، تاريخ الإصدار، الدولة، واللغة من TMDB</string>
     <string name="tmdb_credits_title">طاقم العمل</string>
