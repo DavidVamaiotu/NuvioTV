@@ -1,0 +1,57 @@
+name: Update AutoSync TV .3 changelog
+
+on:
+  push:
+    branches:
+      - subtitle-autosync
+    paths:
+      - ".github/workflows/update-autosync-tv-3-changelog.yml"
+
+permissions:
+  contents: write
+
+jobs:
+  update-release:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout branch
+        uses: actions/checkout@v6
+        with:
+          ref: subtitle-autosync
+          fetch-depth: 0
+
+      - name: Update release notes
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TARGET_TAG: 1.1.0-beta.1-autosync.3
+        run: |
+          cat > /tmp/release-notes.md <<'EOF'
+AutoSync TV revision based on official NuvioTV 1.1.0-beta.1.
+
+## Changelog
+- Replaced the expanded semantic PGS resolver from `autosync.2` with the lightweight Mobile-style indexed PGS timing path.
+- PGS timing now uses the Matroska cue index and reconstructs display/clear visibility intervals only when the indexed evidence supports it, avoiding the extra sparse cluster/block reads used by the previous resolver.
+- Restored the normal live-reference fallback behavior when indexed PGS handling cannot provide a usable reference, reducing false **No reliable match** outcomes introduced by `autosync.2`.
+- Kept the raw-PGS live-cue guard on TV so undecoded `application/pgs` samples are not mistaken for subtitle visibility events.
+- Added AutoSync confidence percentages and **Excellent / Strong / Possible / Weak** match labels.
+- Improved success, failure, and reference-retry toasts with more specific outcomes instead of only reporting a generic unreliable match.
+- Allows a localized unmatched subtitle run when every other confidence gate is strong.
+- Expanded debug diagnostics with failed confidence gates, skip-run behavior, localized mismatch state, and residual timing figures.
+- When two confident reference matches disagree by more than 300 ms, AutoSync now prefers the alignment with the tighter matched-group fit.
+- Added full-placement search for partial/CD1-CD2 subtitle releases instead of limiting those cases to about ±180 seconds.
+- Prefetches the embedded subtitle index when playback starts and reuses the in-flight load when AutoSync runs.
+
+This release brings TV back to the same lightweight PGS approach used by the current Mobile AutoSync implementation while keeping the latest V2 accuracy and diagnostics work.
+EOF
+          gh release edit "$TARGET_TAG" --repo "$GITHUB_REPOSITORY" --notes-file /tmp/release-notes.md
+
+      - name: Remove one-time updater
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git rm .github/workflows/update-autosync-tv-3-changelog.yml
+          git commit -m "Remove one-time AutoSync TV .3 changelog updater"
+          git push origin HEAD:subtitle-autosync
