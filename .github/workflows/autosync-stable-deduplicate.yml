@@ -1,0 +1,21 @@
+name: AutoSync Stable Deduplicate
+
+on:
+  push:
+    branches:
+      - subtitle-autosync
+    paths:
+      - ".github/workflows/autosync-stable-deduplicate.yml"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: autosync-tv-stable-release
+  cancel-in-progress: false
+
+jobs:
+  noop:
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo "Stable AutoSync release deduplication barrier"
