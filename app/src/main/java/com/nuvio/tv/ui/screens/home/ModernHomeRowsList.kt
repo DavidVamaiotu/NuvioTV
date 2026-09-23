@@ -424,6 +424,7 @@ internal fun ModernHomeRowsList(
                     rowTitleBottom = 14.dp, // rowTitleBottom
                     defaultBringIntoViewSpec = defaultBringIntoViewSpec,
                     focusStateCatalogRowScrollIndex = focusState.catalogRowScrollStates[row.key] ?: 0,
+                    focusStateCatalogRowScrollAnchor = focusState.catalogRowScrollAnchors[row.key],
                     focusedItemByRow = focusedItemByRow,
                     rowListStates = rowListStates,
                     loadMoreRequestedTotals = loadMoreRequestedTotals,
