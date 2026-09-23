@@ -551,59 +551,15 @@ internal object AutomaticSubtitleSync {
 
             var referenceTracks: List<ReferenceTrack> = emptyList()
             var forcedFallbackTracks: List<ReferenceTrack> = emptyList()
-            var pgsResolutionAttempted = false
 
             AutoSyncDebugLog.section { "INDEXED EMBEDDED REFERENCE" }
             if (indexedTimeline != null) {
                 AutoSyncDebugLog.info {
                     "source=${indexedTimeline.source} tracks=${indexedTimeline.tracks.size} " +
-                        "pgsPending=${indexedTimeline.pgsReferences.size} " +
                         "requests=${indexedTimeline.rangeRequests} bytes=${indexedTimeline.bytesDownloaded} " +
                         "load=${indexedTimeline.loadMs}ms"
                 }
-                var indexedTracks = indexedTimeline.tracks
-                val initialProfiles = indexedTracks.map(::buildReferenceProfile)
-                val hasPreferredReadyText = initialProfiles.any { profile ->
-                    profile.fullDialogue &&
-                        profile.cueCount >= MIN_FULL_DIALOGUE_CUES &&
-                        profile.spanMs >= MIN_INDEXED_REFERENCE_SPAN_MS
-                }
-
-                if (indexedTimeline.pgsReferences.isNotEmpty() && !hasPreferredReadyText) {
-                    val pendingPgs = indexedTimeline.pgsReferences
-                        .map { reference -> reference to buildReferenceProfile(reference.previewTrack()) }
-                        .filter { (_, profile) ->
-                            profile.fullDialogueCandidate &&
-                                profile.cueCount >= MIN_FULL_DIALOGUE_CUES &&
-                                profile.spanMs >= MIN_INDEXED_REFERENCE_SPAN_MS
-                        }
-                        .sortedWith(
-                            compareByDescending<Pair<IndexedPgsReference, ReferenceProfile>> {
-                                it.second.fullDialogue
-                            }.thenByDescending {
-                                it.second.rankingScore
-                            }.thenBy {
-                                isSdhReferenceTrack(it.second.track)
-                            }.thenBy {
-                                it.first.key
-                            },
-                        )
-                        .map { it.first }
-
-                    if (pendingPgs.isNotEmpty()) {
-                        pgsResolutionAttempted = true
-                        val resolvedPgs = EmbeddedSubtitleTimelineLoader.resolvePgsReferences(
-                            sourceUrl = sourceKey,
-                            sourceHeaders = sourceHeaders,
-                            references = pendingPgs,
-                        )
-                        if (resolvedPgs.isNotEmpty()) {
-                            indexedTracks = indexedTracks + resolvedPgs
-                        }
-                    }
-                }
-
-                val profiles = indexedTracks.map(::buildReferenceProfile)
+                val profiles = indexedTimeline.tracks.map(::buildReferenceProfile)
                 if (AutoSyncDebugLog.ENABLED) {
                     profiles.forEachIndexed { index, profile ->
                         val track = profile.track
@@ -650,9 +606,7 @@ internal object AutomaticSubtitleSync {
                     sourceKey = sourceKey,
                     preferredLanguage = preferredLanguage,
                     target = seedTarget,
-                    waitMs = if (
-                        indexedTimeline?.skipLiveFallbackWait == true || pgsResolutionAttempted
-                    ) {
+                    waitMs = if (indexedTimeline?.skipLiveFallbackWait == true) {
                         0L
                     } else {
                         LIVE_REFERENCE_WAIT_MS
