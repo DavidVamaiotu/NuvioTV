@@ -1,5 +1,7 @@
 name: Trigger AutoSync TV Stable Release
 
+# Fresh stable release after test dependency fix
+
 # Trigger: rebuild stable AutoSync after dependency fix
 
 on:
