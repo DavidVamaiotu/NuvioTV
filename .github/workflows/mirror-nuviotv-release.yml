@@ -22,6 +22,7 @@ concurrency:
 
 jobs:
   release:
+    if: github.event_name != 'push' || github.event.head_commit.message != 'Trigger stable AutoSync TV release'
     runs-on: ubuntu-latest
 
     steps:
@@ -537,3 +538,8 @@ jobs:
           if gh release view "1.0.1-autosync" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
             gh release edit "1.0.1-autosync" --repo "$GITHUB_REPOSITORY" --latest
           fi
+
+  stable_release:
+    if: github.event_name == 'push' && github.event.head_commit.message == 'Trigger stable AutoSync TV release'
+    uses: ./.github/workflows/autosync-stable-release.yml
+    secrets: inherit
