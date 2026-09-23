@@ -8,7 +8,7 @@ permissions:
 
 concurrency:
   group: autosync-tv-stable-release
-  cancel-in-progress: false
+  cancel-in-progress: true
 
 jobs:
   release:
