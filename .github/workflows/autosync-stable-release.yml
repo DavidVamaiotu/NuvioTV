@@ -1,0 +1,244 @@
+name: AutoSync TV Stable Release
+
+on:
+  workflow_call:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: autosync-tv-stable-release
+  cancel-in-progress: false
+
+jobs:
+  release:
+    name: Build and publish stable AutoSync TV
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout stable AutoSync branch
+        uses: actions/checkout@v6
+        with:
+          ref: subtitle-autosync-stable
+          fetch-depth: 0
+
+      - name: Choose next stable AutoSync revision
+        id: version
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          BASE_TAG="1.0.0"
+          MAX_REVISION=0
+
+          while IFS= read -r TAG; do
+            if [[ "$TAG" =~ ^1[.]0[.]0-autosync[.]([0-9]+)$ ]]; then
+              REVISION="${BASH_REMATCH[1]}"
+              if (( REVISION > MAX_REVISION )); then
+                MAX_REVISION="$REVISION"
+              fi
+            fi
+          done < <(
+            gh api --paginate "repos/$GITHUB_REPOSITORY/releases?per_page=100" --jq '.[].tag_name'
+          )
+
+          NEXT_REVISION=$(( MAX_REVISION + 1 ))
+          AUTOSYNC_TAG="${BASE_TAG}-autosync.${NEXT_REVISION}"
+          PREVIOUS_TAG=""
+          if (( MAX_REVISION > 0 )); then
+            PREVIOUS_TAG="${BASE_TAG}-autosync.${MAX_REVISION}"
+          fi
+
+          echo "tag=$AUTOSYNC_TAG" >> "$GITHUB_OUTPUT"
+          echo "previous_tag=$PREVIOUS_TAG" >> "$GITHUB_OUTPUT"
+          echo "Stable AutoSync release: $AUTOSYNC_TAG"
+
+      - name: Generate stable changelog
+        env:
+          AUTOSYNC_TAG: ${{ steps.version.outputs.tag }}
+        run: |
+          cat > release-notes.md <<EOF
+          ## AutoSync TV stable changelog
+
+          This release ports the current AutoSync V2 improvements to the **stable NuvioTV 1.0.0 base**. It does not include NuvioTV 1.1.0 beta features.
+
+          - Restored the lightweight Mobile-style indexed PGS timing path and normal fallback when indexed PGS evidence is insufficient.
+          - Improved AutoSync confidence reporting with percentage and match-strength diagnostics.
+          - Improved failure/retry messages so rejected matches explain the actual outcome instead of only reporting a generic unreliable match.
+          - Added conservative localized-mismatch handling when every other confidence gate is strong.
+          - Added outlier-safe anchoring and independent-reference consistency checks.
+          - When confident references disagree, prefers the alignment with the tighter matched-group fit.
+          - Added replayable timing dumps for easier debugging of difficult subtitle sources.
+          - Preserved full-placement search for partial/CD1-CD2 subtitle releases.
+          - Prefetches the embedded subtitle index when playback starts so AutoSync can reuse the in-flight/cached index.
+          - Tries subtitle candidates in list order.
+          - Stops evaluating a subtitle once independent references establish that it has no viable fit, reducing wasted matching work.
+
+          Base: official **NuvioTV 1.0.0**
+          Release: **$AUTOSYNC_TAG**
+          EOF
+
+          cat release-notes.md
+
+      - name: Set up Java
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v6
+
+      - name: Configure Nuvio services
+        env:
+          SUPABASE_URL: ${{ secrets.NUVIO_SUPABASE_URL }}
+          SUPABASE_KEY: ${{ secrets.NUVIO_SUPABASE_ANON_KEY }}
+          SUPABASE_FALLBACK: ${{ secrets.NUVIO_SUPABASE_FALLBACK_URL }}
+          TMDB_API_KEY: ${{ secrets.TMDB_API_KEY }}
+        run: |
+          set -e
+          test -n "$SUPABASE_URL"
+          test -n "$SUPABASE_KEY"
+
+          cat > local.properties <<EOF
+          NUVIO_SUPABASE_URL=$SUPABASE_URL
+          NUVIO_SUPABASE_ANON_KEY=$SUPABASE_KEY
+          NUVIO_SUPABASE_FALLBACK_URL=$SUPABASE_FALLBACK
+          TMDB_API_KEY=$TMDB_API_KEY
+          TV_LOGIN_WEB_BASE_URL=https://nuvio.tv/tv-login
+          DEVICE_LOGIN_WEB_BASE_URL=https://nuvio.tv/link
+          AVATAR_PUBLIC_BASE_URL=${SUPABASE_URL%/}/storage/v1/object/public/avatars
+          NUVIO_UPDATE_GITHUB_OWNER=DavidVamaiotu
+          NUVIO_UPDATE_GITHUB_REPO=NuvioTV
+          AUTOSYNC_FORK=true
+          SIMKL_CLIENT_ID=dc20e0db975583b15096267cee79cd23b1f56d4bd301ce3c51e4a96a49c834a6
+          SIMKL_APP_NAME=nuvio
+          INTRODB_API_URL=https://api.introdb.app/
+          IMDB_RATINGS_API_BASE_URL=https://seriesgraph.com/
+          IMDB_TAPFRAME_API_BASE_URL=https://imdb.tapframe.space/
+          EOF
+
+          cp local.properties local.dev.properties
+
+      - name: Configure persistent signing
+        env:
+          KEYSTORE_BASE64: ${{ secrets.AUTOSYNC_KEYSTORE_BASE64 }}
+          STORE_PASSWORD: ${{ secrets.AUTOSYNC_STORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.AUTOSYNC_KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.AUTOSYNC_KEY_PASSWORD }}
+        run: |
+          set -e
+          KEYSTORE_PATH="$RUNNER_TEMP/autosync-release.jks"
+          printf '%s' "$KEYSTORE_BASE64" | base64 --decode > "$KEYSTORE_PATH"
+          keytool -list -keystore "$KEYSTORE_PATH" -storepass "$STORE_PASSWORD" -alias "$KEY_ALIAS" >/dev/null
+
+          {
+            echo "NUVIO_RELEASE_STORE_FILE=$KEYSTORE_PATH"
+            echo "NUVIO_RELEASE_STORE_PASSWORD=$STORE_PASSWORD"
+            echo "NUVIO_RELEASE_KEY_ALIAS=$KEY_ALIAS"
+            echo "NUVIO_RELEASE_KEY_PASSWORD=$KEY_PASSWORD"
+          } >> "$GITHUB_ENV"
+
+      - name: Stamp stable AutoSync version
+        env:
+          AUTOSYNC_TAG: ${{ steps.version.outputs.tag }}
+        run: |
+          set -euo pipefail
+          AUTOSYNC_VERSION_CODE="$(date +%s)"
+          export AUTOSYNC_VERSION_CODE AUTOSYNC_TAG
+
+          python3 - <<'PY'
+          import os
+          import re
+          from pathlib import Path
+
+          path = Path("app/build.gradle.kts")
+          text = path.read_text()
+          version_name = os.environ["AUTOSYNC_TAG"]
+          version_code = os.environ["AUTOSYNC_VERSION_CODE"]
+
+          text, code_count = re.subn(
+              r'versionCode[ \t]*=[ \t]*[0-9]+',
+              f'versionCode = {version_code}',
+              text,
+              count=1,
+          )
+          text, name_count = re.subn(
+              r'versionName[ \t]*=[ \t]*"[^"]+"',
+              f'versionName = "{version_name}"',
+              text,
+              count=1,
+          )
+
+          if code_count != 1 or name_count != 1:
+              raise SystemExit("Could not stamp stable AutoSync version")
+
+          path.write_text(text)
+          PY
+
+      - name: Test AutoSync and updater, then build release
+        run: |
+          ./gradlew             :app:testFullReleaseUnitTest             --tests 'com.nuvio.tv.updater.*'             --tests 'com.nuvio.tv.ui.screens.player.autosync.*'             :app:assembleFullRelease             --build-cache             --stacktrace
+
+      - name: Prepare APKs
+        env:
+          AUTOSYNC_TAG: ${{ steps.version.outputs.tag }}
+        run: |
+          set -euo pipefail
+          SOURCE_DIR="app/build/outputs/apk/full/release"
+
+          for ABI in universal arm64-v8a armeabi-v7a x86_64 x86; do
+            SOURCE="$SOURCE_DIR/app-full-${ABI}-release.apk"
+            TARGET="NuvioTV-AutoSync-${AUTOSYNC_TAG}-${ABI}.apk"
+            test -f "$SOURCE"
+            cp "$SOURCE" "$TARGET"
+          done
+
+      - name: Verify stable update compatibility
+        env:
+          GH_TOKEN: ${{ github.token }}
+          AUTOSYNC_TAG: ${{ steps.version.outputs.tag }}
+          PREVIOUS_TAG: ${{ steps.version.outputs.previous_tag }}
+        run: |
+          set -euo pipefail
+          NEW_APK="NuvioTV-AutoSync-${AUTOSYNC_TAG}-arm64-v8a.apk"
+          AAPT="$(find "$ANDROID_HOME/build-tools" -type f -name aapt | sort -V | tail -n 1)"
+          APKSIGNER="$(find "$ANDROID_HOME/build-tools" -type f -name apksigner | sort -V | tail -n 1)"
+
+          NEW_BADGING="$("$AAPT" dump badging "$NEW_APK" | head -n 1)"
+          NEW_PACKAGE="$(printf '%s\n' "$NEW_BADGING" | sed -n "s/^package: name='\([^']*\)'.*/\1/p")"
+          NEW_VERSION="$(printf '%s\n' "$NEW_BADGING" | sed -n "s/.*versionCode='\([^']*\)'.*/\1/p")"
+          test "$NEW_PACKAGE" = "com.nuviodebug.com"
+
+          if [[ -n "$PREVIOUS_TAG" ]]; then
+            mkdir -p previous
+            gh release download "$PREVIOUS_TAG" --repo "$GITHUB_REPOSITORY" --pattern '*arm64-v8a.apk' --dir previous
+            PREVIOUS_APK="$(find previous -maxdepth 1 -type f -name '*.apk' | head -n 1)"
+            test -n "$PREVIOUS_APK"
+
+            OLD_BADGING="$("$AAPT" dump badging "$PREVIOUS_APK" | head -n 1)"
+            OLD_PACKAGE="$(printf '%s\n' "$OLD_BADGING" | sed -n "s/^package: name='\([^']*\)'.*/\1/p")"
+            OLD_VERSION="$(printf '%s\n' "$OLD_BADGING" | sed -n "s/.*versionCode='\([^']*\)'.*/\1/p")"
+
+            cert_digest() {
+              "$APKSIGNER" verify --print-certs "$1" 2>&1 |
+                sed -nE 's/.*certificate SHA-256 digest:[[:space:]]*([^[:space:]]+).*/\1/p' |
+                head -n 1
+            }
+
+            NEW_CERT="$(cert_digest "$NEW_APK")"
+            OLD_CERT="$(cert_digest "$PREVIOUS_APK")"
+
+            test "$OLD_PACKAGE" = "$NEW_PACKAGE"
+            test -n "$NEW_CERT"
+            test "$OLD_CERT" = "$NEW_CERT"
+            (( NEW_VERSION > OLD_VERSION ))
+          fi
+
+      - name: Publish stable AutoSync release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          AUTOSYNC_TAG: ${{ steps.version.outputs.tag }}
+        run: |
+          set -euo pipefail
+          gh release create "$AUTOSYNC_TAG"             "NuvioTV-AutoSync-${AUTOSYNC_TAG}-universal.apk"             "NuvioTV-AutoSync-${AUTOSYNC_TAG}-arm64-v8a.apk"             "NuvioTV-AutoSync-${AUTOSYNC_TAG}-armeabi-v7a.apk"             "NuvioTV-AutoSync-${AUTOSYNC_TAG}-x86_64.apk"             "NuvioTV-AutoSync-${AUTOSYNC_TAG}-x86.apk"             --repo "$GITHUB_REPOSITORY"             --target "$(git rev-parse HEAD)"             --title "$AUTOSYNC_TAG"             --notes-file release-notes.md             --latest=false
