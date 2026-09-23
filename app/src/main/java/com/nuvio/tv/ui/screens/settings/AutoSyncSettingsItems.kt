@@ -5,6 +5,7 @@ package com.nuvio.tv.ui.screens.settings
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Sync
 import androidx.compose.material.icons.filled.BugReport
+import androidx.compose.material.icons.filled.Timer
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.platform.LocalContext
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -26,6 +27,23 @@ internal fun LazyListScope.autoSyncSettingsItems(
             subtitle = "Automatically sync the preferred add-on subtitle against embedded subtitle timing when playback starts.",
             isChecked = checked,
             onCheckedChange = { AutoSyncPreferences.setEnabled(context, it) },
+            enabled = enabled,
+        )
+    }
+
+    item(key = "subtitle_auto_sync_tolerance") {
+        val context = LocalContext.current
+        AutoSyncPreferences.ensureLoaded(context)
+        val toleranceMs by AutoSyncPreferences.syncToleranceMs.collectAsStateWithLifecycle()
+
+        SliderSettingsItem(
+            icon = Icons.Default.Timer,
+            title = "Auto Sync Tolerance",
+            subtitle = "Keep the original subtitle timing when the sync would move it by no more than this.",
+            values = AutoSyncPreferences.syncToleranceOptionsMs,
+            selected = toleranceMs,
+            valueText = if (toleranceMs > 0) "$toleranceMs ms" else "Off",
+            onValueChange = { AutoSyncPreferences.setSyncToleranceMs(context, it) },
             enabled = enabled,
         )
     }
