@@ -22,6 +22,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
@@ -68,7 +69,9 @@ fun CompanyLogosSection(
     restoreFocusToken: Int = 0,
     onRestoreFocusHandled: () -> Unit = {},
     onCompanyFocused: (revealOverflowPx: Float) -> Unit = {},
-    upFocusRequester: FocusRequester? = null
+    upFocusRequester: FocusRequester? = null,
+    sectionFocusRequester: FocusRequester? = null,
+    allowPageScroll: () -> Boolean = { false }
 ) {
     if (companies.isEmpty()) return
 
@@ -82,6 +85,7 @@ fun CompanyLogosSection(
     val view = LocalView.current
     val density = LocalDensity.current
     val revealPaddingPx = remember(density) { with(density) { NuvioTheme.spacing.md.toPx() } }
+    val allowPageScrollState = rememberUpdatedState(allowPageScroll)
     val suppressRestoreScroll = holdRestoreScrollSuppress ||
         (restoreFocusToken > 0 && restoreCompanyId != null)
     val restoreNoScrollResponder = remember {
@@ -93,7 +97,11 @@ fun CompanyLogosSection(
     val stayVerticalResponder = remember {
         object : BringIntoViewResponder {
             override fun calculateRectForParent(localRect: Rect): Rect {
-                return Rect(localRect.left, 0f, localRect.right, 0f)
+                return if (allowPageScrollState.value()) {
+                    localRect
+                } else {
+                    Rect(localRect.left, 0f, localRect.right, 0f)
+                }
             }
 
             override suspend fun bringChildIntoView(localRect: () -> Rect?) {}
@@ -137,7 +145,7 @@ fun CompanyLogosSection(
                 key = { index, company ->
                     "$title-$index-${company.name}-${company.logo.orEmpty()}"
                 }
-            ) { _, company ->
+            ) { index, company ->
                 Box(
                     modifier = Modifier.bringIntoViewResponder(
                         if (suppressRestoreScroll) restoreNoScrollResponder else stayVerticalResponder
@@ -146,6 +154,7 @@ fun CompanyLogosSection(
                     CompanyLogoCard(
                         company = company,
                         focusRequester = focusRequesters[company.tmdbId],
+                        sectionFocusRequester = if (index == 0) sectionFocusRequester else null,
                         upFocusRequester = upFocusRequester,
                         onFocused = {
                             onCompanyFocused(if (suppressRestoreScroll) 0f else revealOverflowPx)
@@ -162,6 +171,7 @@ fun CompanyLogosSection(
 private fun CompanyLogoCard(
     company: MetaCompany,
     focusRequester: FocusRequester? = null,
+    sectionFocusRequester: FocusRequester? = null,
     upFocusRequester: FocusRequester? = null,
     onFocused: () -> Unit = {},
     onClick: () -> Unit
@@ -190,6 +200,13 @@ private fun CompanyLogoCard(
         modifier = Modifier
             .width(140.dp)
             .height(NuvioTheme.spacing.huge)
+            .then(
+                if (sectionFocusRequester != null) {
+                    Modifier.focusRequester(sectionFocusRequester)
+                } else {
+                    Modifier
+                }
+            )
             .then(
                 if (focusRequester != null) Modifier.focusRequester(focusRequester) else Modifier
             )

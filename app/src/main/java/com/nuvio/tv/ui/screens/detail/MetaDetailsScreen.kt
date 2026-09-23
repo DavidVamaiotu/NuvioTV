@@ -7,6 +7,7 @@ import com.nuvio.tv.ui.theme.NuvioTheme
 import com.nuvio.tv.ui.theme.NuvioMotion
 
 import android.view.KeyEvent
+import android.os.SystemClock
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.Crossfade
 import androidx.compose.animation.core.animateFloatAsState
@@ -47,9 +48,11 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.Stable
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.withFrameNanos
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.focus.FocusDirection
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusProperties
 import androidx.compose.ui.focus.focusRestorer
@@ -73,6 +76,7 @@ import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.res.stringResource
 import com.nuvio.tv.R
+import com.nuvio.tv.ui.util.dpadVerticalFastScroll
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.compose.runtime.DisposableEffect
@@ -143,6 +147,14 @@ private enum class RestoreTarget {
     COLLECTION,
     COMPANY_OR_NETWORK
 }
+
+private class DetailTapScroll {
+    var rapidDown: Boolean = false
+    var lastKey: Int = 0
+    var lastDownAt: Long = 0L
+}
+
+private const val RAPID_DOWN_TAP_MS = 280L
 
 private enum class PeopleSectionTab {
     CAST,
@@ -1254,6 +1266,9 @@ private fun MetaDetailsContent(
     var savedRestoreScrollOffset by rememberSaveable(meta.id) { mutableIntStateOf(0) }
     var pinnedPageIndex by remember { mutableIntStateOf(-1) }
     var pinnedPageOffset by remember { mutableIntStateOf(0) }
+    var detailFastScrolling by remember { mutableStateOf(false) }
+    var detailFastScrollToken by remember { mutableIntStateOf(0) }
+    val detailFastScrollingState = rememberUpdatedState(detailFastScrolling)
     // Suppress auto-scroll when hero buttons get focus
     val heroNoScrollResponder = remember {
         object : BringIntoViewResponder {
@@ -1277,6 +1292,8 @@ private fun MetaDetailsContent(
     val commentsTitleModeFocusRequester = remember { FocusRequester() }
     val commentsEpisodeModeFocusRequester = remember { FocusRequester() }
     val commentsRowEntryFocusRequester = remember { FocusRequester() }
+    val networkSectionFocusRequester = remember { FocusRequester() }
+    val productionSectionFocusRequester = remember { FocusRequester() }
     var pendingRestoreType by rememberSaveable { mutableStateOf<RestoreTarget?>(null) }
     var pendingRestoreEpisodeId by rememberSaveable { mutableStateOf<String?>(null) }
     var pendingRestoreCastPersonId by rememberSaveable { mutableStateOf<Int?>(null) }
@@ -1316,6 +1333,21 @@ private fun MetaDetailsContent(
             ): Float = 0f
         }
     }
+    val detailPageBringIntoViewSpec = remember(defaultBringIntoViewSpec) {
+        @Suppress("DEPRECATION", "OVERRIDE_DEPRECATION")
+        object : BringIntoViewSpec {
+            override val scrollAnimationSpec = defaultBringIntoViewSpec.scrollAnimationSpec
+
+            override fun calculateScrollDistance(
+                offset: Float,
+                size: Float,
+                containerSize: Float
+            ): Float {
+                if (detailFastScrollingState.value) return 0f
+                return defaultBringIntoViewSpec.calculateScrollDistance(offset, size, containerSize)
+            }
+        }
+    }
     val detailRowBringIntoViewResponder = remember(suppressDetailRowRelocation) {
         object : BringIntoViewResponder {
             override fun calculateRectForParent(localRect: Rect): Rect {
@@ -1326,6 +1358,7 @@ private fun MetaDetailsContent(
         }
     }
     var lastDetailDpadKey by rememberSaveable(meta.id) { mutableIntStateOf(0) }
+    val tapScroll = remember { DetailTapScroll() }
     val episodeRowStayVerticalResponder = remember(lastDetailDpadKey, pendingRestoreType) {
         object : BringIntoViewResponder {
             override fun calculateRectForParent(localRect: Rect): Rect {
@@ -1376,6 +1409,7 @@ private fun MetaDetailsContent(
     }
 
     fun onCompanyRowFocused(revealOverflowPx: Float) {
+        if (tapScroll.rapidDown && tapScroll.lastKey == KeyEvent.KEYCODE_DPAD_DOWN) return
         pinDetailPageScroll()
         if (pendingRestoreType == RestoreTarget.COMPANY_OR_NETWORK) return
         val remaining = remainingDetailScrollPx()
@@ -1390,6 +1424,14 @@ private fun MetaDetailsContent(
         coroutineScope.launch {
             listState.animateScrollBy(distance, NuvioMotion.slowTween())
         }
+    }
+
+    fun allowCompanyPageScroll(): Boolean {
+        val key = tapScroll.lastKey
+        val vertical = key == KeyEvent.KEYCODE_DPAD_UP || key == KeyEvent.KEYCODE_DPAD_DOWN
+        if (!vertical) return false
+        if (key == KeyEvent.KEYCODE_DPAD_DOWN && tapScroll.rapidDown) return true
+        return remainingDetailScrollPx() !in 1..200
     }
 
     fun restorePinnedDetailPageIfNudge() {
@@ -2138,7 +2180,7 @@ private fun MetaDetailsContent(
             LocalBringIntoViewSpec provides if (suppressRestoreBringIntoView) {
                 restoreNoScrollBringIntoViewSpec
             } else {
-                defaultBringIntoViewSpec
+                detailPageBringIntoViewSpec
             }
         ) {
         LazyColumn(
@@ -2152,11 +2194,130 @@ private fun MetaDetailsContent(
                             KeyEvent.KEYCODE_DPAD_UP,
                             KeyEvent.KEYCODE_DPAD_DOWN,
                             KeyEvent.KEYCODE_DPAD_LEFT,
-                            KeyEvent.KEYCODE_DPAD_RIGHT -> lastDetailDpadKey = native.keyCode
+                            KeyEvent.KEYCODE_DPAD_RIGHT -> {
+                                lastDetailDpadKey = native.keyCode
+                                tapScroll.lastKey = native.keyCode
+                            }
+                        }
+                        if (native.keyCode == KeyEvent.KEYCODE_DPAD_DOWN && native.repeatCount == 0) {
+                            val now = SystemClock.uptimeMillis()
+                            tapScroll.rapidDown = now - tapScroll.lastDownAt <= RAPID_DOWN_TAP_MS
+                            tapScroll.lastDownAt = now
+                            if (tapScroll.rapidDown) {
+                                coroutineScope.launch {
+                                    val beforeIndex = listState.firstVisibleItemIndex
+                                    val beforeOffset = listState.firstVisibleItemScrollOffset
+                                    repeat(2) { withFrameNanos { } }
+                                    val moved = listState.firstVisibleItemIndex != beforeIndex ||
+                                        kotlin.math.abs(listState.firstVisibleItemScrollOffset - beforeOffset) > 2
+                                    if (moved || listState.isScrollInProgress || !listState.canScrollForward) {
+                                        return@launch
+                                    }
+                                    val remaining = remainingDetailScrollPx()
+                                    val step = when {
+                                        remaining <= 0 -> return@launch
+                                        remaining == Int.MAX_VALUE -> with(localDensity) { 240.dp.toPx() }
+                                        else -> remaining.toFloat()
+                                    }
+                                    listState.scroll { scrollBy(step) }
+                                }
+                            }
+                        } else if (native.keyCode != KeyEvent.KEYCODE_DPAD_DOWN) {
+                            tapScroll.rapidDown = false
                         }
                     }
                     false
-                },
+                }
+                .dpadVerticalFastScroll(
+                    scrollableState = listState,
+                    throttleHorizontalRepeats = false,
+                    onFastScrollingChanged = { active ->
+                        if (active) {
+                            detailFastScrollToken += 1
+                            detailFastScrolling = true
+                            pinnedPageIndex = -1
+                            pinnedPageOffset = 0
+                        }
+                    },
+                    shouldHaltForward = {
+                        val info = listState.layoutInfo
+                        val lastIdx = info.totalItemsCount - 1
+                        val lastVisible = info.visibleItemsInfo.lastOrNull { it.index == lastIdx }
+                        lastIdx >= 0 && lastVisible != null &&
+                            lastVisible.offset + lastVisible.size <= info.viewportEndOffset
+                    },
+                    resolveVerticalLanding = { sign ->
+                        val layoutInfo = listState.layoutInfo
+                        val visibleItems = layoutInfo.visibleItemsInfo
+                        val lastIdx = layoutInfo.totalItemsCount - 1
+                        val viewportEnd = layoutInfo.viewportEndOffset
+                        val lastItemAtBottom = lastIdx >= 0 &&
+                            visibleItems.lastOrNull { it.index == lastIdx }?.let {
+                                it.offset + it.size <= viewportEnd
+                            } == true
+                        val upwardTopItem = if (sign < 0) {
+                            visibleItems.firstOrNull()?.takeIf { it.offset > -it.size / 2 }
+                        } else {
+                            null
+                        }
+                        val target = when {
+                            lastItemAtBottom -> visibleItems.lastOrNull { it.index == lastIdx }
+                            upwardTopItem != null -> upwardTopItem
+                            else -> visibleItems.firstOrNull { it.offset >= 0 }
+                                ?: visibleItems.firstOrNull()
+                        }
+                        fun requesterForKey(key: Any?): FocusRequester? {
+                            val name = key as? String ?: return null
+                            return when {
+                                name == "hero" -> heroPlayFocusRequester
+                                name == "season_tabs" -> selectedSeasonFocusRequester
+                                name.startsWith("episodes_") ->
+                                    seasonDownFocusRequester ?: selectedSeasonFocusRequester
+                                name == "cast_more_like_tabs" -> activePeopleTabFocusRequester
+                                name == "cast_or_more_like" -> when (activePeopleTab) {
+                                    PeopleSectionTab.CAST -> castSectionFocusRequester
+                                    PeopleSectionTab.MORE_LIKE_THIS -> moreLikeSectionFocusRequester
+                                    PeopleSectionTab.TRAILER -> trailerSectionFocusRequester
+                                    PeopleSectionTab.COLLECTION -> collectionSectionFocusRequester
+                                    PeopleSectionTab.RATINGS -> ratingsContentFocusRequester
+                                }
+                                name == "collection_section" -> collectionSectionFocusRequester
+                                name == "trakt_comments" -> when {
+                                    comments.isNotEmpty() -> commentsRowEntryFocusRequester
+                                    canToggleEpisodeComments -> commentsSelectedModeFocusRequester
+                                    else -> commentsRowEntryFocusRequester
+                                }
+                                name == "networks" -> networkSectionFocusRequester
+                                name == "production" -> productionSectionFocusRequester
+                                else -> null
+                            }
+                        }
+                        val primary = requesterForKey(target?.key)
+                        val fallback = visibleItems.firstNotNullOfOrNull { item ->
+                            requesterForKey(item.key)?.takeIf { it != primary }
+                        }
+                        val landingToken = detailFastScrollToken
+                        coroutineScope.launch {
+                            try {
+                                val candidates = listOfNotNull(primary, fallback)
+                                repeat(6) {
+                                    for (requester in candidates) {
+                                        val focused = runCatching {
+                                            requester.requestFocus(FocusDirection.Enter)
+                                        }.getOrDefault(false)
+                                        if (focused) return@launch
+                                    }
+                                    withFrameNanos { }
+                                }
+                            } finally {
+                                if (detailFastScrollToken == landingToken) {
+                                    detailFastScrolling = false
+                                }
+                            }
+                        }
+                        null
+                    }
+                ),
             state = listState
         ) {
             // Hero as first item in the lazy column
@@ -2581,6 +2742,8 @@ private fun MetaDetailsContent(
                             onRestoreFocusHandled = { clearPendingRestore() },
                             onCompanyFocused = { overflow -> onCompanyRowFocused(overflow) },
                             upFocusRequester = if (shouldShowCommentsSection) commentsRowEntryFocusRequester else null,
+                            sectionFocusRequester = networkSectionFocusRequester,
+                            allowPageScroll = ::allowCompanyPageScroll,
                             onCompanyClick = { company ->
                                 company.tmdbId?.let { entityId ->
                                     markCompanyRestore(entityId)
@@ -2601,6 +2764,8 @@ private fun MetaDetailsContent(
                             onRestoreFocusHandled = { clearPendingRestore() },
                             onCompanyFocused = { overflow -> onCompanyRowFocused(overflow) },
                             upFocusRequester = if (shouldShowCommentsSection && meta.networks.isEmpty()) commentsRowEntryFocusRequester else null,
+                            sectionFocusRequester = productionSectionFocusRequester,
+                            allowPageScroll = ::allowCompanyPageScroll,
                             onCompanyClick = { company ->
                                 company.tmdbId?.let { entityId ->
                                     markCompanyRestore(entityId)
@@ -2621,6 +2786,8 @@ private fun MetaDetailsContent(
                             onRestoreFocusHandled = { clearPendingRestore() },
                             onCompanyFocused = { overflow -> onCompanyRowFocused(overflow) },
                             upFocusRequester = if (shouldShowCommentsSection) commentsRowEntryFocusRequester else null,
+                            sectionFocusRequester = productionSectionFocusRequester,
+                            allowPageScroll = ::allowCompanyPageScroll,
                             onCompanyClick = { company ->
                                 company.tmdbId?.let { entityId ->
                                     markCompanyRestore(entityId)
@@ -2641,6 +2808,8 @@ private fun MetaDetailsContent(
                             onRestoreFocusHandled = { clearPendingRestore() },
                             onCompanyFocused = { overflow -> onCompanyRowFocused(overflow) },
                             upFocusRequester = if (shouldShowCommentsSection && meta.productionCompanies.isEmpty()) commentsRowEntryFocusRequester else null,
+                            sectionFocusRequester = networkSectionFocusRequester,
+                            allowPageScroll = ::allowCompanyPageScroll,
                             onCompanyClick = { company ->
                                 company.tmdbId?.let { entityId ->
                                     markCompanyRestore(entityId)
