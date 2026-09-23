@@ -227,6 +227,43 @@ jobs:
           echo "previous_tag=$PREVIOUS_TAG" >> "$GITHUB_OUTPUT"
           echo "bridge_tag=$BRIDGE_TAG" >> "$GITHUB_OUTPUT"
 
+      - name: Generate AutoSync changelog
+        if: steps.upstream.outputs.should_release == 'true'
+        env:
+          PREVIOUS_TAG: ${{ steps.version.outputs.previous_tag }}
+          UPSTREAM_TAG: ${{ steps.upstream.outputs.upstream_tag }}
+        run: |
+          set -euo pipefail
+
+          {
+            echo "## AutoSync TV changelog"
+            echo
+            if [[ -n "$PREVIOUS_TAG" ]] && git rev-parse --verify --quiet "$PREVIOUS_TAG^{commit}" >/dev/null; then
+              CHANGES="$(
+                git log --reverse --no-merges --pretty=format:'%s' "$PREVIOUS_TAG..HEAD" -- . ':(exclude).github/workflows/**' |
+                  grep -Ev '^(Trigger AutoSync release|Release .*autosync|Sync NuvioTV )' || true
+              )"
+            else
+              CHANGES="$(
+                git log -20 --reverse --no-merges --pretty=format:'%s' -- . ':(exclude).github/workflows/**' |
+                  grep -Ev '^(Trigger AutoSync release|Release .*autosync|Sync NuvioTV )' || true
+              )"
+            fi
+
+            if [[ -n "$CHANGES" ]]; then
+              while IFS= read -r line; do
+                printf -- '- %s\n' "$line"
+              done <<< "$CHANGES"
+            else
+              echo "- Rebuilt from the current subtitle-autosync branch."
+            fi
+
+            echo
+            echo "Based on official NuvioTV $UPSTREAM_TAG."
+          } > autosync-tv-release-notes.md
+
+          cat autosync-tv-release-notes.md
+
       - name: Set up Java
         if: steps.upstream.outputs.should_release == 'true'
         uses: actions/setup-java@v5
@@ -469,7 +506,7 @@ jobs:
             --repo "$GITHUB_REPOSITORY"
             --target "$(git rev-parse HEAD)"
             --title "$AUTOSYNC_TAG"
-            --notes "AutoSync TV revision $AUTOSYNC_TAG based on official NuvioTV $UPSTREAM_TAG. Includes AutoSync V2."
+            --notes-file autosync-tv-release-notes.md"
           )
 
           if [[ "$PRERELEASE" == "true" ]]; then
