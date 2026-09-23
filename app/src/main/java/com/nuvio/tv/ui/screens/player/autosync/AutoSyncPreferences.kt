@@ -16,6 +16,7 @@ internal object AutoSyncPreferences {
     private const val KEY_ENABLED = "automatic_subtitle_sync_enabled"
     private const val KEY_AGGRESSIVE_MODE = "automatic_subtitle_sync_aggressive_mode"
     private const val KEY_DEBUG_LOGS = "automatic_subtitle_sync_debug_logs"
+    private const val KEY_SYNC_TOLERANCE_MS = "automatic_subtitle_sync_tolerance_ms"
 
     private val lock = Any()
     @Volatile private var initialized = false
@@ -31,6 +32,11 @@ internal object AutoSyncPreferences {
     private val _aggressiveMode = MutableStateFlow(true)
     val aggressiveMode: StateFlow<Boolean> = _aggressiveMode.asStateFlow()
 
+    /** Keep the original timing when the needed correction is at most this; 0 disables it. */
+    val syncToleranceOptionsMs = listOf(0, 100, 200, 300, 400, 500)
+    private val _syncToleranceMs = MutableStateFlow(0)
+    val syncToleranceMs: StateFlow<Int> = _syncToleranceMs.asStateFlow()
+
     fun ensureLoaded(context: Context) {
         if (initialized) return
         synchronized(lock) {
@@ -39,6 +45,8 @@ internal object AutoSyncPreferences {
             _enabled.value = prefs.getBoolean(KEY_ENABLED, false)
             _aggressiveMode.value = prefs.getBoolean(KEY_AGGRESSIVE_MODE, true)
             _debugLogsEnabled.value = prefs.getBoolean(KEY_DEBUG_LOGS, false)
+            _syncToleranceMs.value = prefs.getInt(KEY_SYNC_TOLERANCE_MS, 0)
+                .takeIf { it in syncToleranceOptionsMs } ?: 0
             initialized = true
         }
     }
@@ -83,6 +91,17 @@ internal object AutoSyncPreferences {
             .getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
             .edit()
             .putBoolean(KEY_DEBUG_LOGS, enabled)
+            .apply()
+    }
+
+    fun setSyncToleranceMs(context: Context, toleranceMs: Int) {
+        ensureLoaded(context)
+        if (toleranceMs !in syncToleranceOptionsMs || _syncToleranceMs.value == toleranceMs) return
+        _syncToleranceMs.value = toleranceMs
+        context.applicationContext
+            .getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+            .edit()
+            .putInt(KEY_SYNC_TOLERANCE_MS, toleranceMs)
             .apply()
     }
 

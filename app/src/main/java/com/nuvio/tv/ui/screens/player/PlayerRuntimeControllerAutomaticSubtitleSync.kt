@@ -16,6 +16,7 @@ import com.nuvio.tv.ui.screens.player.autosync.AutoSyncSubtitleCandidate
 import com.nuvio.tv.ui.screens.player.autosync.AutomaticSubtitleSync
 import com.nuvio.tv.ui.screens.player.autosync.EmbeddedSubtitleTimelineLoader
 import com.nuvio.tv.ui.screens.player.autosync.applyAutoSyncSidecarTimeline
+import com.nuvio.tv.ui.screens.player.autosync.maxAlignmentShiftMs
 import com.nuvio.tv.ui.screens.player.autosync.replaceAutoSyncSidecarSubtitle
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.launch
@@ -180,7 +181,16 @@ internal fun PlayerRuntimeController.maybeRunAutomaticSubtitleSync(
                 ?: selectedSubtitle.takeIf { it.url == resolved.subtitleUrl }
                 ?: return@launch
 
+            // A confident match whose whole-film correction is within the user's tolerance keeps
+            // the selected subtitle's original timing instead of retiming it.
+            val toleranceMs = AutoSyncPreferences.syncToleranceMs.value
+            val withinToleranceMs = toleranceMs.takeIf {
+                it > 0 &&
+                    resolved.subtitleUrl == selectedUrl &&
+                    resolved.timeline.maxAlignmentShiftMs() <= it
+            }
             val applied = when {
+                withinToleranceMs != null -> activeSidecarSubtitleKey == selectedUrl
                 resolved.subtitleUrl == selectedUrl -> {
                     applyAutoSyncSidecarTimeline(
                         sidecar = this@maybeRunAutomaticSubtitleSync,
@@ -243,11 +253,17 @@ internal fun PlayerRuntimeController.maybeRunAutomaticSubtitleSync(
                     "externalChanged=${chosenSubtitle.url != selectedUrl} " +
                     "groups=${timeline.groups.size} alignment=${timeline.alignmentSource} " +
                     "targetCoverage=${"%.4f".format(timeline.targetCoverage)} " +
-                    "referenceCoverage=${"%.4f".format(timeline.referenceCoverage)}"
+                    "referenceCoverage=${"%.4f".format(timeline.referenceCoverage)} " +
+                    "maxShift=${"%.1f".format(timeline.maxAlignmentShiftMs())}ms " +
+                    "withinTolerance=${withinToleranceMs != null} toleranceMs=$toleranceMs"
             }
             AutoSyncDebugLog.finishAndCopy(
                 context,
-                "APPLIED V2 sidecar timeline url=${chosenSubtitle.url}",
+                if (withinToleranceMs != null) {
+                    "WITHIN TOLERANCE ${withinToleranceMs}ms - original timing kept url=${chosenSubtitle.url}"
+                } else {
+                    "APPLIED V2 sidecar timeline url=${chosenSubtitle.url}"
+                },
             )
             showAutoSyncToast(
                 buildAutoSyncSuccessToast(
@@ -256,6 +272,7 @@ internal fun PlayerRuntimeController.maybeRunAutomaticSubtitleSync(
                     interceptMs = timeline.alignmentInterceptMs,
                     assessment = resolved.assessment,
                     localizedMismatchIgnored = timeline.localizedMismatchIgnored,
+                    withinToleranceMs = withinToleranceMs,
                 ),
             )
         } catch (cancel: CancellationException) {
@@ -278,11 +295,13 @@ private fun buildAutoSyncSuccessToast(
     interceptMs: Double,
     assessment: AutoSyncMatchAssessment,
     localizedMismatchIgnored: Boolean,
+    withinToleranceMs: Int?,
 ): String {
     val prefix =
         "Auto Sync • ${assessment.strength.displayName} match " +
             "(${assessment.confidencePercent}%)"
     return when {
+        withinToleranceMs != null -> "$prefix • in sync (within $withinToleranceMs ms tolerance)"
         localizedMismatchIgnored -> "$prefix • localized mismatch ignored"
         replacedSubtitle -> "$prefix • subtitle replaced"
         abs(scale - 1.0) >= 0.0005 -> "$prefix • drift corrected"
