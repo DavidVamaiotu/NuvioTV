@@ -1,0 +1,252 @@
+name: Update AutoSync TV release notes
+
+on:
+  push:
+    branches:
+      - subtitle-autosync
+    paths:
+      - ".github/workflows/update-autosync-tv-release-notes.yml"
+
+permissions:
+  contents: write
+
+jobs:
+  update-release-notes:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Update existing TV release descriptions
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          cat > /tmp/release-391642258.md <<'REL_391642258'
+          AutoSync TV build based on official NuvioTV 0.9.5-beta.
+          
+          ## Initial AutoSync TV release
+          - Added automatic subtitle synchronization for Android TV playback.
+          - Matches subtitle timing rather than subtitle text, so external subtitles can synchronize against embedded references in another language.
+          - Uses indexed embedded subtitle timing when available with live Media3 subtitle capture as fallback.
+          - Added constant-offset and timeline scale/drift estimation with confidence validation.
+          - Brought the TV matcher to parity with the contemporary NuvioMobile AutoSync implementation.
+          - Added AutoSync playback toasts and debug logging/build support.
+          - Added persistent signing for AutoSync debug builds.
+          - Updated the fork updater and runtime configuration so TV AutoSync builds could update independently.
+          
+          This is the original pre-V2 TV AutoSync implementation.
+          REL_391642258
+          jq -n --rawfile body /tmp/release-391642258.md '{body:$body}' \
+            | gh api --method PATCH "repos/$GITHUB_REPOSITORY/releases/391642258" --input -
+
+          cat > /tmp/release-392112128.md <<'REL_392112128'
+          AutoSync TV build based on official NuvioTV 1.0.0.
+          
+          ## AutoSync V2
+          - Ported the AutoSync V2 architecture from NuvioMobile to TV.
+          - Added whole-timeline activity correlation for text-independent matching.
+          - Added fast delay-only synchronization with structural validation.
+          - Added affine scale/intercept matching for progressive drift and FPS-style timing differences.
+          - Added cue/group DP matching for different subtitle segmentation patterns.
+          - Added global delay preflight, reference ranking, caching and bounded parallel matching.
+          - Added overlap protection and stronger confidence validation.
+          - Kept AutoSync isolated behind TV player hooks and sidecar subtitle handling.
+          - Matched Mobile startup behavior and explicit no-embedded-subtitle handling.
+          
+          This established the shared Mobile/TV V2 matching architecture.
+          REL_392112128
+          jq -n --rawfile body /tmp/release-392112128.md '{body:$body}' \
+            | gh api --method PATCH "repos/$GITHUB_REPOSITORY/releases/392112128" --input -
+
+          cat > /tmp/release-393037233.md <<'REL_393037233'
+          AutoSync TV revision based on official NuvioTV 1.0.0.
+          
+          ## What changed
+          - Introduced the upstream-based AutoSync revision scheme: `upstream-version-autosync.revision`.
+          - Updated the in-app updater to understand and order AutoSync revision releases correctly.
+          - Added release-selection and version-ordering tests.
+          - Reworked the release workflow so future AutoSync fixes could ship as incremental revisions without pretending to be newer upstream NuvioTV versions.
+          
+          No AutoSync matching or retiming algorithm changed in this revision.
+          REL_393037233
+          jq -n --rawfile body /tmp/release-393037233.md '{body:$body}' \
+            | gh api --method PATCH "repos/$GITHUB_REPOSITORY/releases/393037233" --input -
+
+          cat > /tmp/release-393037335.md <<'REL_393037335'
+          Compatibility bridge for existing AutoSync TV installs.
+          
+          ## What changed
+          - No matcher or player code changes.
+          - This release points to the same commit/APK generation as `1.0.0-autosync.1`.
+          - It existed only to bridge older AutoSync installs that expected a `1.0.1-autosync` style version.
+          - Future releases use the canonical `upstream-version-autosync.revision` naming scheme.
+          
+          Use `1.0.0-autosync.1` as the canonical equivalent release.
+          REL_393037335
+          jq -n --rawfile body /tmp/release-393037335.md '{body:$body}' \
+            | gh api --method PATCH "repos/$GITHUB_REPOSITORY/releases/393037335" --input -
+
+          cat > /tmp/release-393063257.md <<'REL_393063257'
+          AutoSync TV revision based on official NuvioTV 1.0.0.
+          
+          ## What changed
+          - Matched TV AutoSync playback notifications to Mobile.
+          - Standardized startup/success/failure toast wording.
+          - Capitalized the AutoSync V2 startup notification.
+          - An experimental ABI-specific packaging change was tested and reverted before the final release.
+          
+          No matching thresholds or retiming behavior changed.
+          REL_393063257
+          jq -n --rawfile body /tmp/release-393063257.md '{body:$body}' \
+            | gh api --method PATCH "repos/$GITHUB_REPOSITORY/releases/393063257" --input -
+
+          cat > /tmp/release-393083283.md <<'REL_393083283'
+          AutoSync TV revision based on official NuvioTV 1.0.0.
+          
+          ## What changed
+          - Improved embedded reference selection so usable normal full-dialogue tracks are preferred.
+          - Forced subtitle tracks became fallback references instead of competing with normal dialogue tracks by default.
+          - Fixed the case where an unusable normal track could incorrectly prevent a usable forced fallback.
+          - Applied the same reference preference rules to indexed and live Media3 reference paths.
+          
+          This reduced accidental synchronization against short forced-only subtitle tracks.
+          REL_393083283
+          jq -n --rawfile body /tmp/release-393083283.md '{body:$body}' \
+            | gh api --method PATCH "repos/$GITHUB_REPOSITORY/releases/393083283" --input -
+
+          cat > /tmp/release-393160854.md <<'REL_393160854'
+          AutoSync TV revision based on official NuvioTV 1.0.0.
+          
+          ## What changed
+          - Added a true second-stage forced-subtitle fallback.
+          - AutoSync evaluates usable normal full-dialogue references first.
+          - Forced references are tried only when the normal-reference stage produces no confident V2 match.
+          - Forced references still go through the same preflight, ranking, matching and confidence validation.
+          - Hardened final winner selection so the fallback cannot replace a better confident normal match.
+          - Kept the legacy updater bridge tracking the newest compatible release.
+          
+          This expands compatibility without weakening normal reference selection.
+          REL_393160854
+          jq -n --rawfile body /tmp/release-393160854.md '{body:$body}' \
+            | gh api --method PATCH "repos/$GITHUB_REPOSITORY/releases/393160854" --input -
+
+          cat > /tmp/release-393215129.md <<'REL_393215129'
+          AutoSync TV revision based on official NuvioTV 1.0.0.
+          
+          ## What changed
+          - Fixed the Simkl client ID used by AutoSync TV builds.
+          - Added the TMDB API key to AutoSync debug/release build environments.
+          - Restored the normal AutoSync TV release trigger.
+          
+          No AutoSync matching or retiming logic changed in this revision.
+          REL_393215129
+          jq -n --rawfile body /tmp/release-393215129.md '{body:$body}' \
+            | gh api --method PATCH "repos/$GITHUB_REPOSITORY/releases/393215129" --input -
+
+          cat > /tmp/release-393224955.md <<'REL_393224955'
+          AutoSync TV revision based on official NuvioTV 1.0.0.
+          
+          ## What changed
+          - Added ABI-specific APK publishing alongside the universal APK.
+          - Published separate builds for arm64-v8a, armeabi-v7a, x86 and x86_64.
+          - Kept the universal APK for devices/users that do not want to select an ABI manually.
+          
+          This was a packaging/distribution change only; AutoSync matching behavior was unchanged.
+          REL_393224955
+          jq -n --rawfile body /tmp/release-393224955.md '{body:$body}' \
+            | gh api --method PATCH "repos/$GITHUB_REPOSITORY/releases/393224955" --input -
+
+          cat > /tmp/release-393378807.md <<'REL_393378807'
+          AutoSync TV revision based on official NuvioTV 1.0.0.
+          
+          ## AutoSync change
+          - Delay-only synchronization now applies one **uniform validated offset** to the entire external subtitle.
+          - V2 still uses structural DP matching as the safety/validation gate.
+          - Once a delay-only match is accepted, DP no longer introduces small per-cue timing variations.
+          - Drift/affine matches still use full timeline retiming.
+          
+          ## Release/package improvements
+          - Optimized TV release APK size while preserving the AutoSync application ID and updater compatibility.
+          - Kept ABI-specific APKs plus the universal build.
+          - Added APK identity and certificate verification to protect update compatibility.
+          
+          This release combines the uniform delay-only fix with substantially leaner release APKs.
+          REL_393378807
+          jq -n --rawfile body /tmp/release-393378807.md '{body:$body}' \
+            | gh api --method PATCH "repos/$GITHUB_REPOSITORY/releases/393378807" --input -
+
+          cat > /tmp/release-393399131.md <<'REL_393399131'
+          AutoSync TV revision based on official NuvioTV 1.0.0.
+          
+          ## What changed
+          - Added the conservative grouped-reply timing refinement used by Mobile.
+          - Targets confident 2:2 dialogue groups where the second subtitle starts too early but ends at the correct speech boundary.
+          - Can move only the second cue start while preserving its end.
+          - Requires a real reference gap, bounded correction and supporting neighboring simple groups.
+          - Ambiguous/overlapping gaps and estimated reference ends are ignored.
+          - The refinement is output-only and does not affect candidate scoring, confidence or reference selection.
+          
+          Designed to improve chained dialogue while leaving ordinary one-line matches unchanged.
+          REL_393399131
+          jq -n --rawfile body /tmp/release-393399131.md '{body:$body}' \
+            | gh api --method PATCH "repos/$GITHUB_REPOSITORY/releases/393399131" --input -
+
+          cat > /tmp/release-393409466.md <<'REL_393409466'
+          AutoSync TV revision based on official NuvioTV 1.0.0.
+          
+          ## What changed
+          - Removed a duplicate fallback wait in the AutoSync pipeline.
+          - AutoSync now checks whether the selected subtitle load has actually completed instead of waiting through the same alternative-subtitle path twice.
+          - Matching rules and confidence thresholds were unchanged.
+          
+          Result: faster fallback/failure handling when subtitle candidates are slow.
+          REL_393409466
+          jq -n --rawfile body /tmp/release-393409466.md '{body:$body}' \
+            | gh api --method PATCH "repos/$GITHUB_REPOSITORY/releases/393409466" --input -
+
+          cat > /tmp/release-393687457.md <<'REL_393687457'
+          AutoSync TV revision based on official NuvioTV 1.0.0.
+          
+          ## What changed
+          - Fixed AutoSync release ordering so revision `.10` is treated as newer than `.9` instead of being sorted lexicographically.
+          - Repaired the release workflow/order metadata used by the in-app updater.
+          - Prepared the release chain for subsequent upstream NuvioTV versions.
+          
+          No AutoSync matcher or retiming behavior changed.
+          REL_393687457
+          jq -n --rawfile body /tmp/release-393687457.md '{body:$body}' \
+            | gh api --method PATCH "repos/$GITHUB_REPOSITORY/releases/393687457" --input -
+
+          cat > /tmp/release-393700793.md <<'REL_393700793'
+          AutoSync TV revision based on official NuvioTV 1.1.0-beta.1.
+          
+          ## What changed
+          - Updated the AutoSync fork to official NuvioTV 1.1.0-beta.1 while preserving the existing V2 AutoSync implementation.
+          - Finalized stable AutoSync release ordering across upstream-version/revision tags.
+          - Updated Gradle/release configuration for the new upstream beta.
+          
+          ## Upstream NuvioTV 1.1.0-beta.1
+          Includes MDBList tracking/library support, custom poster URL patterns, playback/buffering fixes, focus/navigation fixes, hero/detail improvements and broad localization updates.
+          
+          AutoSync matching itself remained essentially unchanged from `1.0.0-autosync.10`.
+          REL_393700793
+          jq -n --rawfile body /tmp/release-393700793.md '{body:$body}' \
+            | gh api --method PATCH "repos/$GITHUB_REPOSITORY/releases/393700793" --input -
+
+          cat > /tmp/release-394140375.md <<'REL_394140375'
+          AutoSync TV revision based on official NuvioTV 1.1.0-beta.1.
+          
+          ## PGS AutoSync changes
+          - Added PGS reference timing support for Matroska subtitles.
+          - Added semantic PGS display-set parsing and lazy range-based resolution.
+          - Reconstructed subtitle visibility from PGS composition/display/clear state without OCR or bitmap decoding.
+          - Added sparse/batched PGS reads and conservative handling of unsupported or ambiguous metadata.
+          - Added standards-correct Matroska block/display-set assembly.
+          - Added handling for epoch resets, repeated compositions and palette-only ambiguity.
+          - Excluded raw PGS samples from the ordinary live-cue path while semantic resolution is active.
+          - Added tests covering display-set assembly, visibility, partial coverage and PGS timing edge cases.
+          
+          This release mirrors the expanded semantic PGS resolver that Mobile had at the same stage.
+          REL_394140375
+          jq -n --rawfile body /tmp/release-394140375.md '{body:$body}' \
+            | gh api --method PATCH "repos/$GITHUB_REPOSITORY/releases/394140375" --input -
