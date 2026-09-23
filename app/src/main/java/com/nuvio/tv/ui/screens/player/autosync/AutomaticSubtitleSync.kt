@@ -21,6 +21,7 @@ import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
 import kotlin.math.abs
 import kotlin.math.exp
+import kotlin.math.roundToInt
 import kotlin.math.roundToLong
 
 /**
@@ -167,6 +168,8 @@ internal object AutomaticSubtitleSync {
         alternativeSubtitlesProvider: (() -> List<AutoSyncSubtitleCandidate>)? = null,
         onReferenceReady: () -> Unit = {},
         onNoSubtitleTracks: () -> Unit = {},
+        onAnalysisOutcome: ((AutoSyncAnalysisOutcome) -> Unit)? = null,
+        onMatchAssessment: ((AutoSyncMatchAssessment) -> Unit)? = null,
         sourceHeaders: Map<String, String> = emptyMap(),
     ): AutoSyncResolvedTimeline? {
         Unit
@@ -538,6 +541,7 @@ internal object AutomaticSubtitleSync {
                     markSubtitleLoadCancellation(selectedSubtitleUrl, source = "selected")
                 }
                 selectedSubtitleDeferred.cancel()
+                onAnalysisOutcome?.invoke(AutoSyncAnalysisOutcome.SUBTITLE_UNAVAILABLE)
                 AutoSyncDebugLog.section { "FINAL RECOMMENDATION" }
                 AutoSyncDebugLog.warn {
                     "REJECT no usable external subtitle candidate could be parsed"
@@ -662,6 +666,9 @@ internal object AutomaticSubtitleSync {
                 val noSubtitleTracks = indexedTimeline?.noSubtitleTracks == true
                 if (noSubtitleTracks) {
                     onNoSubtitleTracks()
+                    onAnalysisOutcome?.invoke(AutoSyncAnalysisOutcome.NO_SUBTITLE_TRACKS)
+                } else {
+                    onAnalysisOutcome?.invoke(AutoSyncAnalysisOutcome.NO_USABLE_REFERENCE)
                 }
                 prefetchedAlternativeLoads.forEach { (url, job) ->
                     if (!job.isCompleted) {
@@ -794,6 +801,7 @@ internal object AutomaticSubtitleSync {
             var peakPairWorkers = 0
             var bestFamily: CandidateTimingFamilyState? = null
             var bestMatch: TimelineRetimeMatch? = null
+            var bestObservedMatch: TimelineRetimeMatch? = null
 
             val pairComparator =
                 compareBy<PairHypothesis> {
@@ -968,10 +976,24 @@ internal object AutomaticSubtitleSync {
             fun isBetterMatch(
                 candidate: TimelineRetimeMatch,
                 current: TimelineRetimeMatch?,
+                sameTarget: Boolean,
             ): Boolean {
                 if (current == null) return true
                 if (candidate.timeline.confident != current.timeline.confident) {
                     return candidate.timeline.confident
+                }
+                if (sameTarget) {
+                    preferTighterFitOnDisagreement(candidate.timeline, current.timeline)
+                        ?.let { preferCandidate ->
+                            AutoSyncDebugLog.info {
+                                "references disagree; tighter fit wins " +
+                                    "${candidate.track.key}:" +
+                                    "${fmt(candidate.timeline.medianGroupResidualMs)}ms vs " +
+                                    "${current.track.key}:" +
+                                    "${fmt(current.timeline.medianGroupResidualMs)}ms"
+                            }
+                            return preferCandidate
+                        }
                 }
                 val candidateQuality = directTimelineQualityScore(candidate)
                 val currentQuality = directTimelineQualityScore(current)
@@ -1051,8 +1073,22 @@ internal object AutomaticSubtitleSync {
                         val match = evaluation.match
                         if (
                             match != null &&
+                            (
+                                bestObservedMatch == null ||
+                                    matchConfidencePercent(match) >
+                                    matchConfidencePercent(bestObservedMatch!!)
+                                )
+                        ) {
+                            bestObservedMatch = match
+                        }
+                        if (
+                            match != null &&
                             match.timeline.confident &&
-                            isBetterMatch(match, fallbackBestMatch)
+                            isBetterMatch(
+                                match,
+                                fallbackBestMatch,
+                                sameTarget = family === fallbackBestFamily,
+                            )
                         ) {
                             fallbackBestMatch = match
                             fallbackBestFamily = family
@@ -1106,7 +1142,14 @@ internal object AutomaticSubtitleSync {
                 val pairMatch = completed.evaluation.match
                 if (pairMatch != null) {
                     family.completedUsableAttempts++
-                    if (isBetterMatch(pairMatch, family.best)) {
+                    if (
+                        bestObservedMatch == null ||
+                        matchConfidencePercent(pairMatch) >
+                        matchConfidencePercent(bestObservedMatch!!)
+                    ) {
+                        bestObservedMatch = pairMatch
+                    }
+                    if (isBetterMatch(pairMatch, family.best, sameTarget = true)) {
                         family.best = pairMatch
                         family.bestSchedulingScore = completed.hypothesis.schedulingScore
                     }
@@ -1116,7 +1159,7 @@ internal object AutomaticSubtitleSync {
                 if (
                     familyBest != null &&
                     familyBest.timeline.confident &&
-                    isBetterMatch(familyBest, bestMatch)
+                    isBetterMatch(familyBest, bestMatch, sameTarget = family === bestFamily)
                 ) {
                     bestMatch = familyBest
                     bestFamily = family
@@ -1309,6 +1352,9 @@ internal object AutomaticSubtitleSync {
                     markSubtitleLoadCancellation(selectedSubtitleUrl, source = "selected")
                     selectedSubtitleDeferred.cancel()
                 }
+                bestObservedMatch?.let { match ->
+                    onMatchAssessment?.invoke(matchAssessment(match))
+                }
                 AutoSyncDebugLog.section { "FINAL RECOMMENDATION" }
                 AutoSyncDebugLog.warn {
                     "REJECT no confident match found; original subtitle timing should be kept"
@@ -1353,6 +1399,7 @@ internal object AutomaticSubtitleSync {
                 subtitleHeaders = headersForCandidate(winningMember.candidate.url),
                 subtitleBody = winningMember.loaded.rawBody,
                 timeline = memberMatch.timeline,
+                assessment = matchAssessment(memberMatch),
             )
         }
 
@@ -1459,7 +1506,11 @@ internal object AutomaticSubtitleSync {
                 "intercept=${"%.1f".format(timeline.alignmentInterceptMs)}ms " +
                 "activityScore=${fmt(timeline.activityScore)} activityMargin=${fmt(timeline.activityMargin)} " +
                 "targetCoverage=${fmt(timeline.targetCoverage)} referenceCoverage=${fmt(timeline.referenceCoverage)} " +
-                "avgGroupCost=${fmt(timeline.averageGroupCost)} simpleRatio=${fmt(timeline.simpleGroupRatio)}"
+                "avgGroupCost=${fmt(timeline.averageGroupCost)} simpleRatio=${fmt(timeline.simpleGroupRatio)} " +
+                "skipRun=${timeline.longestTargetSkipRun} " +
+                "localizedMismatchIgnored=${timeline.localizedMismatchIgnored} " +
+                "residual=${fmt(timeline.medianGroupResidualMs)}ms" +
+                (timeline.rejectReason?.let { " rejectReason=$it" } ?: "")
         }
 
         if (timeline.confident && isExceptionalMatch(match)) {
@@ -2154,6 +2205,34 @@ internal object AutomaticSubtitleSync {
             sdhPenalty
     }
 
+    private fun matchConfidencePercent(match: TimelineRetimeMatch): Int {
+        val result = match.timeline
+        val structuralQuality = directTimelineQualityScore(match).coerceIn(0.0, 1.0)
+        val activityQuality = result.activityScore.coerceIn(0.0, 1.0)
+        val marginQuality = (result.activityMargin / 0.05).coerceIn(0.0, 1.0)
+        return (
+            (
+                structuralQuality * 0.50 +
+                    activityQuality * 0.25 +
+                    marginQuality * 0.25
+                ) * 100.0
+            ).roundToInt().coerceIn(0, 100)
+    }
+
+    private fun matchAssessment(match: TimelineRetimeMatch): AutoSyncMatchAssessment {
+        val confidencePercent = matchConfidencePercent(match)
+        val strength = when {
+            confidencePercent >= 90 -> AutoSyncMatchStrength.EXCELLENT
+            confidencePercent >= 80 -> AutoSyncMatchStrength.STRONG
+            confidencePercent >= 65 -> AutoSyncMatchStrength.POSSIBLE
+            else -> AutoSyncMatchStrength.WEAK
+        }
+        return AutoSyncMatchAssessment(
+            confidencePercent = confidencePercent,
+            strength = strength,
+        )
+    }
+
     private fun isExceptionalMatch(match: TimelineRetimeMatch): Boolean {
         val result = match.timeline
         return result.confident &&
@@ -2355,11 +2434,30 @@ internal object AutomaticSubtitleSync {
     )
 }
 
+internal enum class AutoSyncAnalysisOutcome {
+    SUBTITLE_UNAVAILABLE,
+    NO_SUBTITLE_TRACKS,
+    NO_USABLE_REFERENCE,
+}
+
+internal enum class AutoSyncMatchStrength(val displayName: String) {
+    EXCELLENT("Excellent"),
+    STRONG("Strong"),
+    POSSIBLE("Possible"),
+    WEAK("Weak"),
+}
+
+internal data class AutoSyncMatchAssessment(
+    val confidencePercent: Int,
+    val strength: AutoSyncMatchStrength,
+)
+
 internal data class AutoSyncResolvedTimeline(
     val subtitleUrl: String,
     val subtitleHeaders: Map<String, String>,
     val subtitleBody: String?,
     val timeline: AutoSyncTimelineRetimeResult,
+    val assessment: AutoSyncMatchAssessment,
 )
 
 internal data class ReferenceTrack(
