@@ -1,0 +1,17 @@
+name: Trigger AutoSync TV Stable Release
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - subtitle-autosync
+    paths:
+      - ".github/workflows/trigger-autosync-stable-release.yml"
+
+permissions:
+  contents: write
+
+jobs:
+  stable-release:
+    uses: ./.github/workflows/autosync-stable-release.yml
+    secrets: inherit
