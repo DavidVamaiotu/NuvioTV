@@ -1,6 +1,6 @@
 name: AutoSync TV Release
 
-# Release trigger: eliminate duplicate fallback wait
+# Release trigger: publish Mobile-style PGS handling and latest AutoSync parity
 
 
 on:
