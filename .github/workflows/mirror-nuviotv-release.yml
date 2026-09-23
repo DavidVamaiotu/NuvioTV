@@ -1,6 +1,6 @@
 name: AutoSync TV Release
 
-# Release trigger: publish Mobile-style PGS handling and latest AutoSync parity
+# Release trigger: publish current subtitle-autosync revision
 
 
 on:
