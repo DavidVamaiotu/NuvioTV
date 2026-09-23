@@ -49,6 +49,7 @@ fun CollectionSection(
     sectionFocusRequester: FocusRequester? = null,
     restoreItemId: String? = null,
     restoreFocusToken: Int = 0,
+    blockDefaultRestore: Boolean = false,
     lastFocusedItemId: String? = null,
     onLastFocusedItemIdChange: (String) -> Unit = {},
     onRestoreFocusHandled: () -> Unit = {},
@@ -81,9 +82,13 @@ fun CollectionSection(
         }
     }
 
-    val suppressRestoreScroll = restoreFocusToken > 0 && !restoreItemId.isNullOrBlank()
-    var restorePending by remember(restoreFocusToken, restoreItemId) { mutableStateOf(suppressRestoreScroll) }
-    var placedFocused by remember(restoreFocusToken, restoreItemId) { mutableStateOf(false) }
+    val suppressRestoreScroll = !restoreItemId.isNullOrBlank()
+    var restorePending by remember(restoreItemId) { mutableStateOf(suppressRestoreScroll) }
+    var placedFocused by remember(restoreItemId) { mutableStateOf(false) }
+    LaunchedEffect(restoreItemId) {
+        if (restoreItemId.isNullOrBlank()) return@LaunchedEffect
+        restoreFocusRequester.requestFocusAfterFrames(frames = 0)
+    }
     val restoreNoScrollResponder = remember {
         object : BringIntoViewResponder {
             override fun calculateRectForParent(localRect: Rect): Rect = Rect.Zero
@@ -130,7 +135,13 @@ fun CollectionSection(
             modifier = Modifier
                 .fillMaxWidth()
                 .then(if (sectionFocusRequester != null) Modifier.focusRequester(sectionFocusRequester) else Modifier)
-                .focusRestorer { if (restorePending) restoreFocusRequester else lastFocusedRequester }
+                .focusRestorer {
+                    when {
+                        restorePending -> restoreFocusRequester
+                        blockDefaultRestore -> FocusRequester.Cancel
+                        else -> lastFocusedRequester
+                    }
+                }
                 .focusGroup(),
             contentPadding = PaddingValues(horizontal = NuvioTheme.spacing.xxxl, vertical = 6.dp),
             horizontalArrangement = Arrangement.spacedBy(NuvioTheme.spacing.md)
@@ -174,7 +185,7 @@ fun CollectionSection(
                         onFocused = {
                             onLastFocusedItemIdChange(item.id)
                             onItemFocused(item)
-                            if (isRestoreTarget && restoreFocusToken > 0) {
+                            if (isRestoreTarget && !restoreItemId.isNullOrBlank()) {
                                 restorePending = false
                                 onRestoreFocusHandled()
                             }

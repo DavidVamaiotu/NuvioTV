@@ -1,6 +1,8 @@
 package com.nuvio.tv.ui.screens.detail
 
 import com.nuvio.tv.ui.components.LocalPlaybackAvailability
+import com.nuvio.tv.ui.navigation.LocalDetailChildClosedEpoch
+import com.nuvio.tv.ui.navigation.LocalDetailChildOverlayVisible
 import android.widget.Toast
 
 import com.nuvio.tv.ui.theme.NuvioTheme
@@ -466,7 +468,8 @@ fun MetaDetailsScreen(
         finishedListener = { playOnLoadReturnContentRevealed = it == 1f }
     )
 
-    BackHandler {
+    val childOverlayVisible = LocalDetailChildOverlayVisible.current
+    BackHandler(enabled = !childOverlayVisible) {
         if (selectedComment != null) {
             commentOverlayDirection = 0
             viewModel.onEvent(MetaDetailsEvent.OnDismissCommentOverlay)
@@ -532,6 +535,7 @@ fun MetaDetailsScreen(
     Box(
         modifier = Modifier
             .fillMaxSize()
+            .background(NuvioTheme.colors.Background)
             .onPreviewKeyEvent { keyEvent ->
                 if (currentIsTrailerPlaying) {
                     if (currentShowTrailerControls) {
@@ -1317,6 +1321,7 @@ private fun MetaDetailsContent(
     }
     val lifecycleOwner = LocalLifecycleOwner.current
     val coroutineScope = rememberCoroutineScope()
+    val childClosedEpoch = LocalDetailChildClosedEpoch.current
     val suppressDetailRowRelocation = pendingRestoreType == RestoreTarget.EPISODE
     val suppressRestoreBringIntoView =
         pendingRestoreType == RestoreTarget.COMPANY_OR_NETWORK ||
@@ -1543,26 +1548,35 @@ private fun MetaDetailsContent(
         }
     }
 
+    val childOverlayVisible = LocalDetailChildOverlayVisible.current
+    fun launchPendingFocusRestore() {
+        if (childOverlayVisible) return
+        if (!restoreOnNextResume || pendingRestoreType == null) return
+        restoreOnNextResume = false
+        val index = savedRestoreScrollIndex
+        val offset = savedRestoreScrollOffset
+        val bumpCompany = pendingRestoreType == RestoreTarget.COMPANY_OR_NETWORK
+        coroutineScope.launch {
+            if (index >= 0) {
+                animateDetailScrollTo(index, offset)
+            }
+            if (bumpCompany) {
+                companyRestoreToken += 1
+            }
+            restoreFocusToken += 1
+        }
+    }
+
+    LaunchedEffect(childClosedEpoch, childOverlayVisible) {
+        if (childClosedEpoch > 0 && !childOverlayVisible) {
+            launchPendingFocusRestore()
+        }
+    }
+
     DisposableEffect(lifecycleOwner) {
         val observer = LifecycleEventObserver { _, event ->
-            if (
-                event == Lifecycle.Event.ON_RESUME &&
-                restoreOnNextResume &&
-                pendingRestoreType != null
-            ) {
-                restoreOnNextResume = false
-                val index = savedRestoreScrollIndex
-                val offset = savedRestoreScrollOffset
-                val bumpCompany = pendingRestoreType == RestoreTarget.COMPANY_OR_NETWORK
-                coroutineScope.launch {
-                    if (index >= 0) {
-                        animateDetailScrollTo(index, offset)
-                    }
-                    if (bumpCompany) {
-                        companyRestoreToken += 1
-                    }
-                    restoreFocusToken += 1
-                }
+            if (event == Lifecycle.Event.ON_RESUME) {
+                launchPendingFocusRestore()
             }
         }
         lifecycleOwner.lifecycle.addObserver(observer)
@@ -1924,9 +1938,7 @@ private fun MetaDetailsContent(
         activePeopleTab = visiblePeopleTabsList.first()
     }
 
-    // Switch to the correct people tab when restoring focus after navigation
-    LaunchedEffect(restoreFocusToken, pendingRestoreType) {
-        if (restoreFocusToken <= 0 || pendingRestoreType == null) return@LaunchedEffect
+    LaunchedEffect(pendingRestoreType) {
         when (pendingRestoreType) {
             RestoreTarget.MORE_LIKE_THIS -> activePeopleTab = PeopleSectionTab.MORE_LIKE_THIS
             RestoreTarget.COLLECTION -> activePeopleTab = PeopleSectionTab.COLLECTION
@@ -2155,7 +2167,7 @@ private fun MetaDetailsContent(
 
     // Always-composed bottom gradient alpha (avoids add/remove during scroll)
 
-    Box(modifier = modifier.fillMaxSize()) {
+    Box(modifier = modifier.fillMaxSize().background(backgroundColor)) {
         // Sticky background — backdrop or trailer
         BackdropLayer(
             backdropRequest = backdropRequest,
@@ -2537,8 +2549,9 @@ private fun MetaDetailsContent(
                                     upFocusRequester = if (hasVisiblePeopleTabs) castTabFocusRequester else seasonDownFocusRequester ?: heroPlayFocusRequester,
                                     downFocusRequester = if (shouldShowCommentsSection && canToggleEpisodeComments) commentsSelectedModeFocusRequester else null,
                                     sectionFocusRequester = castSectionFocusRequester,
-                                    restorePersonId = if (pendingRestoreType == RestoreTarget.CAST_MEMBER) pendingRestoreCastPersonId else null,
+                                    restorePersonId = if (!childOverlayVisible && pendingRestoreType == RestoreTarget.CAST_MEMBER) pendingRestoreCastPersonId else null,
                                     restoreFocusToken = if (pendingRestoreType == RestoreTarget.CAST_MEMBER) restoreFocusToken else 0,
+                                    blockDefaultRestore = pendingRestoreType != null && pendingRestoreType != RestoreTarget.CAST_MEMBER,
                                     lastFocusedPersonKey = lastFocusedCastKey,
                                     onLastFocusedPersonKeyChange = { lastFocusedCastKey = it },
                                     onRestoreFocusHandled = {
@@ -2570,8 +2583,9 @@ private fun MetaDetailsContent(
                                     upFocusRequester = if (hasVisiblePeopleTabs) moreLikeTabFocusRequester else seasonDownFocusRequester ?: heroPlayFocusRequester,
                                     downFocusRequester = if (shouldShowCommentsSection && canToggleEpisodeComments) commentsSelectedModeFocusRequester else null,
                                     sectionFocusRequester = moreLikeSectionFocusRequester,
-                                    restoreItemId = if (pendingRestoreType == RestoreTarget.MORE_LIKE_THIS) pendingRestoreMoreLikeItemId else null,
+                                    restoreItemId = if (!childOverlayVisible && pendingRestoreType == RestoreTarget.MORE_LIKE_THIS) pendingRestoreMoreLikeItemId else null,
                                     restoreFocusToken = if (pendingRestoreType == RestoreTarget.MORE_LIKE_THIS) restoreFocusToken else 0,
+                                    blockDefaultRestore = pendingRestoreType != null && pendingRestoreType != RestoreTarget.MORE_LIKE_THIS,
                                     lastFocusedItemId = lastFocusedMoreLikeItemId,
                                     onLastFocusedItemIdChange = { lastFocusedMoreLikeItemId = it },
                                     onRestoreFocusHandled = {
@@ -2616,8 +2630,9 @@ private fun MetaDetailsContent(
                                     upFocusRequester = if (hasVisiblePeopleTabs) collectionTabFocusRequester else seasonDownFocusRequester ?: heroPlayFocusRequester,
                                     downFocusRequester = if (shouldShowCommentsSection && canToggleEpisodeComments) commentsSelectedModeFocusRequester else null,
                                     sectionFocusRequester = collectionSectionFocusRequester,
-                                    restoreItemId = if (pendingRestoreType == RestoreTarget.COLLECTION) pendingRestoreCollectionItemId else null,
+                                    restoreItemId = if (!childOverlayVisible && pendingRestoreType == RestoreTarget.COLLECTION) pendingRestoreCollectionItemId else null,
                                     restoreFocusToken = if (pendingRestoreType == RestoreTarget.COLLECTION) restoreFocusToken else 0,
+                                    blockDefaultRestore = pendingRestoreType != null && pendingRestoreType != RestoreTarget.COLLECTION,
                                     lastFocusedItemId = lastFocusedCollectionItemId,
                                     onLastFocusedItemIdChange = { lastFocusedCollectionItemId = it },
                                     onRestoreFocusHandled = {
@@ -2681,8 +2696,9 @@ private fun MetaDetailsContent(
                             seasonDownFocusRequester ?: heroPlayFocusRequester
                         },
                         sectionFocusRequester = collectionSectionFocusRequester,
-                        restoreItemId = if (pendingRestoreType == RestoreTarget.COLLECTION) pendingRestoreCollectionItemId else null,
+                        restoreItemId = if (!childOverlayVisible && pendingRestoreType == RestoreTarget.COLLECTION) pendingRestoreCollectionItemId else null,
                         restoreFocusToken = if (pendingRestoreType == RestoreTarget.COLLECTION) restoreFocusToken else 0,
+                        blockDefaultRestore = pendingRestoreType != null && pendingRestoreType != RestoreTarget.COLLECTION,
                         lastFocusedItemId = lastFocusedCollectionItemId,
                         onLastFocusedItemIdChange = { lastFocusedCollectionItemId = it },
                         onRestoreFocusHandled = {
@@ -2744,7 +2760,7 @@ private fun MetaDetailsContent(
                         CompanyLogosSection(
                             title = stringResource(R.string.detail_section_network),
                             companies = meta.networks,
-                            restoreCompanyId = if (companyRestoreToken > 0 && pendingRestoreType == RestoreTarget.COMPANY_OR_NETWORK) pendingRestoreCompanyId else null,
+                            restoreCompanyId = if (!childOverlayVisible && pendingRestoreType == RestoreTarget.COMPANY_OR_NETWORK) pendingRestoreCompanyId else null,
                             restoreFocusToken = if (pendingRestoreType == RestoreTarget.COMPANY_OR_NETWORK) restoreFocusToken else 0,
                             onRestoreFocusHandled = { clearPendingRestore() },
                             onCompanyFocused = { overflow -> onCompanyRowFocused(overflow) },
@@ -2767,7 +2783,7 @@ private fun MetaDetailsContent(
                         CompanyLogosSection(
                             title = stringResource(R.string.detail_section_production),
                             companies = meta.productionCompanies,
-                            restoreCompanyId = if (companyRestoreToken > 0 && pendingRestoreType == RestoreTarget.COMPANY_OR_NETWORK) pendingRestoreCompanyId else null,
+                            restoreCompanyId = if (!childOverlayVisible && pendingRestoreType == RestoreTarget.COMPANY_OR_NETWORK) pendingRestoreCompanyId else null,
                             restoreFocusToken = if (pendingRestoreType == RestoreTarget.COMPANY_OR_NETWORK) restoreFocusToken else 0,
                             onRestoreFocusHandled = { clearPendingRestore() },
                             onCompanyFocused = { overflow -> onCompanyRowFocused(overflow) },
@@ -2790,7 +2806,7 @@ private fun MetaDetailsContent(
                         CompanyLogosSection(
                             title = stringResource(R.string.detail_section_production),
                             companies = meta.productionCompanies,
-                            restoreCompanyId = if (companyRestoreToken > 0 && pendingRestoreType == RestoreTarget.COMPANY_OR_NETWORK) pendingRestoreCompanyId else null,
+                            restoreCompanyId = if (!childOverlayVisible && pendingRestoreType == RestoreTarget.COMPANY_OR_NETWORK) pendingRestoreCompanyId else null,
                             restoreFocusToken = if (pendingRestoreType == RestoreTarget.COMPANY_OR_NETWORK) restoreFocusToken else 0,
                             onRestoreFocusHandled = { clearPendingRestore() },
                             onCompanyFocused = { overflow -> onCompanyRowFocused(overflow) },
@@ -2813,7 +2829,7 @@ private fun MetaDetailsContent(
                         CompanyLogosSection(
                             title = stringResource(R.string.detail_section_network),
                             companies = meta.networks,
-                            restoreCompanyId = if (companyRestoreToken > 0 && pendingRestoreType == RestoreTarget.COMPANY_OR_NETWORK) pendingRestoreCompanyId else null,
+                            restoreCompanyId = if (!childOverlayVisible && pendingRestoreType == RestoreTarget.COMPANY_OR_NETWORK) pendingRestoreCompanyId else null,
                             restoreFocusToken = if (pendingRestoreType == RestoreTarget.COMPANY_OR_NETWORK) restoreFocusToken else 0,
                             onRestoreFocusHandled = { clearPendingRestore() },
                             onCompanyFocused = { overflow -> onCompanyRowFocused(overflow) },

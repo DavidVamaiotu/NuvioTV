@@ -80,6 +80,7 @@ fun CastSection(
     sectionFocusRequester: FocusRequester? = null,
     restorePersonId: Int? = null,
     restoreFocusToken: Int = 0,
+    blockDefaultRestore: Boolean = false,
     lastFocusedPersonKey: String? = null,
     onLastFocusedPersonKeyChange: (String) -> Unit = {},
     onRestoreFocusHandled: () -> Unit = {},
@@ -242,7 +243,11 @@ fun CastSection(
                     }
                 }
                 .focusRestorer {
-                    if (restorePending) restoreTargetRequester else lastFocusedRequester
+                    when {
+                        restorePending -> restoreTargetRequester
+                        blockDefaultRestore -> FocusRequester.Cancel
+                        else -> lastFocusedRequester
+                    }
                 }
                 .focusGroup(),
             state = listState,

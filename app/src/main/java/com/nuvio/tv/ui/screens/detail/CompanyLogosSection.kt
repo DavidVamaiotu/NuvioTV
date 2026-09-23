@@ -24,7 +24,6 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
-import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -41,6 +40,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.boundsInWindow
 import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.layout.onPlaced
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -97,8 +97,7 @@ fun CompanyLogosSection(
     val density = LocalDensity.current
     val revealPaddingPx = remember(density) { with(density) { NuvioTheme.spacing.md.toPx() } }
     val allowPageScrollState = rememberUpdatedState(allowPageScroll)
-    val suppressRestoreScroll = holdRestoreScrollSuppress ||
-        (restoreFocusToken > 0 && restoreCompanyId != null)
+    val suppressRestoreScroll = holdRestoreScrollSuppress || restoreCompanyId != null
     val restoreNoScrollResponder = remember {
         object : BringIntoViewResponder {
             override fun calculateRectForParent(localRect: Rect): Rect = Rect.Zero
@@ -119,14 +118,11 @@ fun CompanyLogosSection(
         }
     }
 
-    LaunchedEffect(restoreCompanyId, restoreFocusToken) {
-        if (restoreFocusToken <= 0 || restoreCompanyId == null) return@LaunchedEffect
+    LaunchedEffect(restoreCompanyId) {
+        if (restoreCompanyId == null) return@LaunchedEffect
         val targetRequester = focusRequesters[restoreCompanyId] ?: return@LaunchedEffect
         holdRestoreScrollSuppress = true
-        repeat(2) { withFrameNanos { } }
-        runCatching { targetRequester.requestFocus() }
-        repeat(2) { withFrameNanos { } }
-        onRestoreFocusHandled()
+        targetRequester.requestFocusAfterFrames(frames = 0)
         holdRestoreScrollSuppress = false
     }
 
@@ -156,10 +152,23 @@ fun CompanyLogosSection(
                 items = companies,
                 key = { index, company -> companyLazyKey(title, index, company) }
             ) { index, company ->
+                val isRestoreTarget = restoreCompanyId != null && company.tmdbId == restoreCompanyId
                 Box(
-                    modifier = Modifier.bringIntoViewResponder(
-                        if (suppressRestoreScroll) restoreNoScrollResponder else stayVerticalResponder
-                    )
+                    modifier = Modifier
+                        .bringIntoViewResponder(
+                            if (suppressRestoreScroll) restoreNoScrollResponder else stayVerticalResponder
+                        )
+                        .then(
+                            if (isRestoreTarget) {
+                                Modifier.onPlaced {
+                                    focusRequesters[company.tmdbId]?.let { requester ->
+                                        runCatching { requester.requestFocus() }
+                                    }
+                                }
+                            } else {
+                                Modifier
+                            }
+                        )
                 ) {
                     CompanyLogoCard(
                         company = company,
@@ -168,6 +177,9 @@ fun CompanyLogosSection(
                         upFocusRequester = upFocusRequester,
                         onFocused = {
                             onCompanyFocused(if (suppressRestoreScroll) 0f else revealOverflowPx)
+                            if (isRestoreTarget) {
+                                onRestoreFocusHandled()
+                            }
                         },
                         onClick = { onCompanyClick(company) }
                     )
