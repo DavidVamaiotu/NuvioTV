@@ -6,11 +6,15 @@ import android.util.Log
 import android.widget.Toast
 import androidx.media3.common.C
 import com.nuvio.tv.domain.model.Subtitle
+import com.nuvio.tv.ui.screens.player.autosync.AutoSyncAnalysisOutcome
 import com.nuvio.tv.ui.screens.player.autosync.AutoSyncCandidateScope
 import com.nuvio.tv.ui.screens.player.autosync.AutoSyncDebugLog
+import com.nuvio.tv.ui.screens.player.autosync.AutoSyncMatchAssessment
+import com.nuvio.tv.ui.screens.player.autosync.AutoSyncMatchStrength
 import com.nuvio.tv.ui.screens.player.autosync.AutoSyncPreferences
 import com.nuvio.tv.ui.screens.player.autosync.AutoSyncSubtitleCandidate
 import com.nuvio.tv.ui.screens.player.autosync.AutomaticSubtitleSync
+import com.nuvio.tv.ui.screens.player.autosync.EmbeddedSubtitleTimelineLoader
 import com.nuvio.tv.ui.screens.player.autosync.applyAutoSyncSidecarTimeline
 import com.nuvio.tv.ui.screens.player.autosync.replaceAutoSyncSidecarSubtitle
 import kotlinx.coroutines.CancellationException
@@ -30,6 +34,19 @@ private fun PlayerRuntimeController.showAutoSyncToast(
         Toast.makeText(context, message, duration).show()
     }
 }
+/**
+ * Starts the embedded subtitle index download while the stream opens, so a later AutoSync run
+ * finds it cached or joins the in-flight load instead of starting when a subtitle is selected.
+ */
+internal fun PlayerRuntimeController.prefetchAutoSyncIndex(
+    url: String,
+    headers: Map<String, String>,
+) {
+    AutoSyncPreferences.ensureLoaded(context)
+    if (!AutoSyncPreferences.isEnabled(context)) return
+    EmbeddedSubtitleTimelineLoader.prefetch(scope, url, headers)
+}
+
 internal fun PlayerRuntimeController.maybeRunAutomaticSubtitleSync(
     selectedSubtitle: Subtitle,
     candidateScope: AutoSyncCandidateScope = AutoSyncCandidateScope.STARTUP_SEARCH,
@@ -52,10 +69,10 @@ internal fun PlayerRuntimeController.maybeRunAutomaticSubtitleSync(
     val player = _exoPlayer ?: return
     val useLibass = requestedUseLibassByUser || activePlayerUsesLibass
 
-    showAutoSyncToast("AutoSync V2 in progress...")
+    showAutoSyncToast("Auto Sync • Analyzing…")
 
     if (!canAttachAddonSubtitleViaSidecar(selectedSubtitle)) {
-        showAutoSyncToast("Auto Sync V2 failed: unsupported subtitle renderer")
+        showAutoSyncToast("Auto Sync • Unsupported subtitle renderer")
         return
     }
 
@@ -78,7 +95,7 @@ internal fun PlayerRuntimeController.maybeRunAutomaticSubtitleSync(
         },
     )
     if (!started) {
-        showAutoSyncToast("Auto Sync V2 failed: subtitle could not be loaded")
+        showAutoSyncToast("Auto Sync • Could not load subtitle")
         return
     }
 
@@ -95,7 +112,8 @@ internal fun PlayerRuntimeController.maybeRunAutomaticSubtitleSync(
                 "AUTO_SYNC_V2 start scope=${candidateScope.name} " +
                     "lang=${selectedSubtitle.lang} candidates=${candidatesAtStart.size}",
             )
-            var noSubtitleTracks = false
+            var analysisOutcome: AutoSyncAnalysisOutcome? = null
+            var rejectedAssessment: AutoSyncMatchAssessment? = null
             val resolved = AutomaticSubtitleSync.findTimelineRetime(
                 sourceKey = sourceUrlAtStart,
                 sourceHeaders = sourceHeadersAtStart,
@@ -130,7 +148,8 @@ internal fun PlayerRuntimeController.maybeRunAutomaticSubtitleSync(
                     null
                 },
                 onReferenceReady = {},
-                onNoSubtitleTracks = { noSubtitleTracks = true },
+                onAnalysisOutcome = { outcome -> analysisOutcome = outcome },
+                onMatchAssessment = { assessment -> rejectedAssessment = assessment },
             )
 
             if (resolved == null) {
@@ -142,8 +161,10 @@ internal fun PlayerRuntimeController.maybeRunAutomaticSubtitleSync(
                     "REJECT V2 - original subtitle timing kept",
                 )
                 showAutoSyncToast(
-                    if (noSubtitleTracks) "No subtitles in tracks"
-                    else "Auto Sync V2 failed: no reliable match",
+                    buildAutoSyncFailureToast(
+                        analysisOutcome = analysisOutcome,
+                        assessment = rejectedAssessment,
+                    ),
                 )
                 return@launch
             }
@@ -201,7 +222,7 @@ internal fun PlayerRuntimeController.maybeRunAutomaticSubtitleSync(
                     context,
                     "REJECT V2 - sidecar changed or apply failed",
                 )
-                showAutoSyncToast("Auto Sync V2 failed: could not apply sync")
+                showAutoSyncToast("Auto Sync • Match found, but sync could not be applied")
                 return@launch
             }
 
@@ -233,6 +254,8 @@ internal fun PlayerRuntimeController.maybeRunAutomaticSubtitleSync(
                     replacedSubtitle = chosenSubtitle.url != selectedUrl,
                     scale = timeline.alignmentScale,
                     interceptMs = timeline.alignmentInterceptMs,
+                    assessment = resolved.assessment,
+                    localizedMismatchIgnored = timeline.localizedMismatchIgnored,
                 ),
             )
         } catch (cancel: CancellationException) {
@@ -244,7 +267,7 @@ internal fun PlayerRuntimeController.maybeRunAutomaticSubtitleSync(
             if (activeSidecarSubtitleKey == null) {
                 startSidecarAddonSubtitle(selectedSubtitle)
             }
-            showAutoSyncToast("Auto Sync V2 failed")
+            showAutoSyncToast("Auto Sync • Sync failed • original timing kept")
         }
     }
 }
@@ -253,18 +276,42 @@ private fun buildAutoSyncSuccessToast(
     replacedSubtitle: Boolean,
     scale: Double,
     interceptMs: Double,
+    assessment: AutoSyncMatchAssessment,
+    localizedMismatchIgnored: Boolean,
 ): String {
-    val prefix = if (replacedSubtitle) {
-        "Auto Sync V2: subtitle replaced"
-    } else {
-        "Auto Sync V2 succeeded"
-    }
+    val prefix =
+        "Auto Sync • ${assessment.strength.displayName} match " +
+            "(${assessment.confidencePercent}%)"
     return when {
+        localizedMismatchIgnored -> "$prefix • localized mismatch ignored"
+        replacedSubtitle -> "$prefix • subtitle replaced"
         abs(scale - 1.0) >= 0.0005 -> "$prefix • drift corrected"
-        abs(interceptMs) >= 50.0 -> "$prefix • ${formatAutoSyncOffset(interceptMs)}"
+        abs(interceptMs) >= 250.0 -> "$prefix • ${formatAutoSyncOffset(interceptMs)}"
         else -> "$prefix • already in sync"
     }
 }
+
+private fun buildAutoSyncFailureToast(
+    analysisOutcome: AutoSyncAnalysisOutcome?,
+    assessment: AutoSyncMatchAssessment?,
+): String =
+    when (analysisOutcome) {
+        AutoSyncAnalysisOutcome.SUBTITLE_UNAVAILABLE ->
+            "Auto Sync • Could not analyze subtitle"
+        AutoSyncAnalysisOutcome.NO_SUBTITLE_TRACKS ->
+            "Auto Sync • No embedded subtitles found"
+        AutoSyncAnalysisOutcome.NO_USABLE_REFERENCE ->
+            "Auto Sync • No usable reference track"
+        null -> {
+            val resolvedAssessment =
+                assessment ?: AutoSyncMatchAssessment(
+                    confidencePercent = 0,
+                    strength = AutoSyncMatchStrength.WEAK,
+                )
+            "Auto Sync • ${resolvedAssessment.strength.displayName} match " +
+                "(${resolvedAssessment.confidencePercent}%) • original timing kept"
+        }
+    }
 
 private fun formatAutoSyncOffset(offsetMs: Double): String {
     val roundedMs = offsetMs.roundToInt()
