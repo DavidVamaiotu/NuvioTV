@@ -10,8 +10,13 @@ import androidx.media3.extractor.mp4.BoxParser
 import androidx.media3.extractor.mp4.TrackSampleTable
 import com.nuvio.tv.ui.screens.player.SubtitleSyncCue
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.TimeoutCancellationException
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeout
@@ -52,6 +57,7 @@ internal object EmbeddedSubtitleTimelineLoader {
     private const val DEFAULT_CUE_DURATION_MS = 5_000L
     private const val LAST_MKV_CUE_ESTIMATED_DURATION_MS = 2_000L
     private const val MAX_MKV_INTER_CUE_ESTIMATED_DURATION_MS = 4_000L
+    private const val MATROSKA_PGS_CODEC_ID = "S_HDMV/PGS"
     private const val MIN_INDEXED_CUES = 8
     private const val MIN_INDEXED_SPAN_MS = 30_000L
     private const val MAX_CACHE_ENTRIES = 2
@@ -118,6 +124,19 @@ internal object EmbeddedSubtitleTimelineLoader {
             eldest: MutableMap.MutableEntry<String, CachedLoadResult>?,
         ): Boolean = size > MAX_CACHE_ENTRIES
     }
+    private val inFlight = mutableMapOf<String, CompletableDeferred<IndexedEmbeddedTimeline?>>()
+
+    /**
+     * Starts loading the index in [scope] so a later [load] finds it cached or joins the
+     * in-flight download instead of starting from zero when AutoSync runs.
+     */
+    fun prefetch(
+        scope: CoroutineScope,
+        sourceUrl: String,
+        sourceHeaders: Map<String, String> = emptyMap(),
+    ) {
+        scope.launch { load(sourceUrl, sourceHeaders) }
+    }
 
     suspend fun load(
         sourceUrl: String,
@@ -131,7 +150,8 @@ internal object EmbeddedSubtitleTimelineLoader {
 
         val cacheKey = "$sourceUrl#${sourceHeaders.hashCode()}"
         val nowNs = System.nanoTime()
-        synchronized(cacheLock) {
+        val ownedLoad = CompletableDeferred<IndexedEmbeddedTimeline?>()
+        val activeLoad = synchronized(cacheLock) {
             val cached = cache[cacheKey]
             if (cached != null) {
                 if (cached.timeline != null) return cached.timeline
@@ -139,8 +159,36 @@ internal object EmbeddedSubtitleTimelineLoader {
                 if (ageMs < NEGATIVE_CACHE_TTL_MS) return null
                 cache.remove(cacheKey)
             }
+            inFlight.getOrPut(cacheKey) { ownedLoad }
         }
 
+        if (activeLoad !== ownedLoad) {
+            return try {
+                activeLoad.await()
+            } catch (cancel: CancellationException) {
+                // The owning load was cancelled (e.g. its player closed). Load for this caller
+                // unless this caller itself is the one being cancelled.
+                currentCoroutineContext().ensureActive()
+                load(sourceUrl, sourceHeaders)
+            }
+        }
+
+        try {
+            return loadAndCache(cacheKey, sourceUrl, sourceHeaders)
+                .also(ownedLoad::complete)
+        } finally {
+            ownedLoad.cancel()
+            synchronized(cacheLock) {
+                if (inFlight[cacheKey] === ownedLoad) inFlight.remove(cacheKey)
+            }
+        }
+    }
+
+    private suspend fun loadAndCache(
+        cacheKey: String,
+        sourceUrl: String,
+        sourceHeaders: Map<String, String>,
+    ): IndexedEmbeddedTimeline? {
         return try {
             val loaded = try {
                 withTimeout(TOTAL_TIMEOUT_MS) {
@@ -1198,36 +1246,153 @@ internal object EmbeddedSubtitleTimelineLoader {
             }
         }
 
-        return pendingByTrack.mapValues { (_, pending) ->
+        val tracksByNumber = subtitleTracks.associateBy { it.number }
+        val peerDialogueCueCounts = subtitleTracks
+            .asSequence()
+            .filter { track ->
+                !track.codecId.equals(MATROSKA_PGS_CODEC_ID, ignoreCase = true) &&
+                    !track.forced &&
+                    !track.commentary
+            }
+            .mapNotNull { track ->
+                pendingByTrack[track.number]
+                    ?.size
+                    ?.takeIf { it >= MIN_INDEXED_CUES }
+            }
+            .sorted()
+            .toList()
+        val peerDialogueCueCount = peerDialogueCueCounts
+            .takeIf { it.isNotEmpty() }
+            ?.let { counts -> counts[counts.size / 2] }
+
+        return pendingByTrack.mapValues { (trackNumber, pending) ->
             val sorted = pending
                 .sortedBy { it.startTimeMs }
                 .distinctBy { it.startTimeMs }
-            val estimatedEndStartsMs = HashSet<Long>()
 
-            val cues = sorted.mapIndexed { index, cue ->
-                val durationMs = cue.explicitDurationMs ?: run {
-                    estimatedEndStartsMs += cue.startTimeMs
-                    val nextStartMs = sorted.getOrNull(index + 1)?.startTimeMs
-                    if (nextStartMs != null && nextStartMs > cue.startTimeMs) {
-                        (nextStartMs - cue.startTimeMs)
-                            .coerceAtMost(MAX_MKV_INTER_CUE_ESTIMATED_DURATION_MS)
-                            .coerceAtLeast(1L)
-                    } else {
-                        LAST_MKV_CUE_ESTIMATED_DURATION_MS
-                    }
-                }
-                SubtitleSyncCue(
-                    startTimeMs = cue.startTimeMs,
-                    endTimeMs = cue.startTimeMs + durationMs,
-                    text = "",
+            if (tracksByNumber[trackNumber]?.codecId.equals(MATROSKA_PGS_CODEC_ID, ignoreCase = true)) {
+                buildPgsIndexedTimeline(
+                    sorted = sorted,
+                    peerDialogueCueCount = peerDialogueCueCount,
                 )
+            } else {
+                buildDefaultIndexedTimeline(sorted)
             }
+        }
+    }
 
-            IndexedSubtitleTimeline(
-                cues = cues,
-                estimatedEndStartsMs = estimatedEndStartsMs,
+    /**
+     * PGS commonly indexes both a visible display and the later clear display set. AutoSync only
+     * needs the resulting visibility interval, not the bitmap. Pair those events only when that
+     * interpretation is supported by peer text-track density (when available); otherwise preserve
+     * the original cue timeline. This keeps the fast O(n), zero-extra-I/O path conservative.
+     */
+    private fun buildPgsIndexedTimeline(
+        sorted: List<PendingIndexedCue>,
+        peerDialogueCueCount: Int?,
+    ): IndexedSubtitleTimeline {
+        if (sorted.size < 2) {
+            return IndexedSubtitleTimeline(
+                cues = emptyList(),
+                estimatedEndStartsMs = emptySet(),
             )
         }
+
+        val pairedCount = sorted.size / 2
+        val explicitDurationCount = sorted.count { (it.explicitDurationMs ?: 0L) > 0L }
+        val shouldPair = if (peerDialogueCueCount != null) {
+            val rawDelta = if (sorted.size >= peerDialogueCueCount) {
+                sorted.size - peerDialogueCueCount
+            } else {
+                peerDialogueCueCount - sorted.size
+            }
+            val pairedDelta = if (pairedCount >= peerDialogueCueCount) {
+                pairedCount - peerDialogueCueCount
+            } else {
+                peerDialogueCueCount - pairedCount
+            }
+
+            // Require a material improvement, not a marginal count coincidence.
+            pairedDelta.toLong() * 3L <= rawDelta.toLong() * 2L
+        } else {
+            // With no peer text track, explicit durations on most entries are evidence that the
+            // index already represents visible cues rather than alternating display/clear events.
+            explicitDurationCount.toLong() * 4L < sorted.size.toLong() * 3L
+        }
+
+        if (!shouldPair) {
+            AutoSyncDebugLog.verbose {
+                "PGS index kept raw=" + sorted.size +
+                    " peer=" + (peerDialogueCueCount ?: -1) +
+                    " explicitDurations=" + explicitDurationCount
+            }
+            return buildDefaultIndexedTimeline(sorted)
+        }
+
+        val cues = ArrayList<SubtitleSyncCue>(pairedCount)
+        var index = 0
+        while (index + 1 < sorted.size) {
+            val display = sorted[index]
+            val clear = sorted[index + 1]
+            if (clear.startTimeMs > display.startTimeMs) {
+                val explicitEndMs = display.explicitDurationMs
+                    ?.takeIf { duration ->
+                        duration > 0L && display.startTimeMs <= Long.MAX_VALUE - duration
+                    }
+                    ?.let { duration -> display.startTimeMs + duration }
+                val endTimeMs = explicitEndMs
+                    ?.coerceAtMost(clear.startTimeMs)
+                    ?: clear.startTimeMs
+
+                if (endTimeMs > display.startTimeMs) {
+                    cues += SubtitleSyncCue(
+                        startTimeMs = display.startTimeMs,
+                        endTimeMs = endTimeMs,
+                        text = "",
+                    )
+                }
+            }
+            index += 2
+        }
+
+        AutoSyncDebugLog.verbose {
+            "PGS index normalized raw=" + sorted.size + " visible=" + cues.size
+        }
+
+        return IndexedSubtitleTimeline(
+            cues = cues,
+            estimatedEndStartsMs = emptySet(),
+        )
+    }
+
+    private fun buildDefaultIndexedTimeline(
+        sorted: List<PendingIndexedCue>,
+    ): IndexedSubtitleTimeline {
+        val estimatedEndStartsMs = HashSet<Long>()
+
+        val cues = sorted.mapIndexed { index, cue ->
+            val durationMs = cue.explicitDurationMs ?: run {
+                estimatedEndStartsMs += cue.startTimeMs
+                val nextStartMs = sorted.getOrNull(index + 1)?.startTimeMs
+                if (nextStartMs != null && nextStartMs > cue.startTimeMs) {
+                    (nextStartMs - cue.startTimeMs)
+                        .coerceAtMost(MAX_MKV_INTER_CUE_ESTIMATED_DURATION_MS)
+                        .coerceAtLeast(1L)
+                } else {
+                    LAST_MKV_CUE_ESTIMATED_DURATION_MS
+                }
+            }
+            SubtitleSyncCue(
+                startTimeMs = cue.startTimeMs,
+                endTimeMs = cue.startTimeMs + durationMs,
+                text = "",
+            )
+        }
+
+        return IndexedSubtitleTimeline(
+            cues = cues,
+            estimatedEndStartsMs = estimatedEndStartsMs,
+        )
     }
 
     private fun buildFallbackTrackLabel(track: MatroskaSubtitleTrack): String {
