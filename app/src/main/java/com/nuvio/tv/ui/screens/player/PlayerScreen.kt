@@ -35,6 +35,7 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
+import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -68,6 +69,7 @@ import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.SkipNext
 import androidx.compose.material.icons.filled.Speed
 import androidx.compose.material.icons.filled.SwapHoriz
+import androidx.compose.material.icons.filled.Tune
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -134,6 +136,12 @@ import com.nuvio.tv.data.local.StreamAutoPlayMode
 import com.nuvio.tv.domain.model.Subtitle
 import com.nuvio.tv.domain.model.WatchProgress
 import com.nuvio.tv.ui.components.LoadingIndicator
+import com.nuvio.tv.ui.screens.player.seekpreview.SeekPreviewAboveProgressBar
+import com.nuvio.tv.ui.screens.player.seekpreview.SeekPreviewCueTicks
+import com.nuvio.tv.ui.screens.player.seekpreview.SeekPreviewSyncLayer
+import com.nuvio.tv.ui.screens.player.seekpreview.SeekPreviewThumbnailHost
+import com.nuvio.tv.ui.screens.player.seekpreview.handleBack
+import com.nuvio.tv.ui.screens.player.seekpreview.seekPreviewSyncAction
 import android.text.format.DateFormat
 import java.util.Date
 import java.util.Locale
@@ -265,6 +273,7 @@ fun PlayerScreen(
 
     val handleBackPress = handleBackPress@{
         if (externalHandoffInProgress) return@handleBackPress
+        if (viewModel.seekPreview.handleBack(uiState)) return@handleBackPress
         if (postPlayRecommendationState.canReturnToPlayer && !uiState.playbackEnded) {
             returnToPlayerFromPostPlay()
             viewModel.hideControls()
@@ -461,6 +470,7 @@ fun PlayerScreen(
     ) {
         if (shouldConfirmNextEpisodeOnEnd || postPlayRecommendationState.isVisible) return@LaunchedEffect
         if (uiState.error != null) return@LaunchedEffect
+        if (viewModel.seekPreview.isSyncOverlayOpen) return@LaunchedEffect
         if (uiState.showControls && !uiState.showEpisodesPanel && !uiState.showSourcesPanel &&
             !uiState.showAudioOverlay && !uiState.showSubtitleOverlay &&
             !uiState.showSubtitleStylePanel && !uiState.showSubtitleDelayOverlay &&
@@ -1428,6 +1438,8 @@ fun PlayerScreen(
             )
         }
 
+        SeekPreviewSyncLayer(viewModel, uiState, onDismissed = { runCatching { containerFocusRequester.requestFocus() } })
+
         AnimatedVisibility(
             visible = uiState.showSeekOverlay && !uiState.showControls && uiState.error == null &&
                 !uiState.showLoadingOverlay && !uiState.showPauseOverlay &&
@@ -2221,6 +2233,7 @@ private fun PlayerControlsOverlay(
             if (!isLivePlayback) {
                 // Progress bar — always LTR regardless of locale
                 CompositionLocalProvider(LocalLayoutDirection provides LayoutDirection.Ltr) {
+                    SeekPreviewAboveProgressBar(viewModel)
                     PlayerControlsProgressBarHost(
                         viewModel = viewModel,
                         focusRequester = progressBarFocusRequester,
@@ -2389,6 +2402,16 @@ private fun PlayerControlsOverlay(
                                 onDownKey = onHideControls,
                                 onFocused = onResetHideTimer
                             )
+                            seekPreviewSyncAction(viewModel)?.let { openSync ->
+                                ControlButton(
+                                    icon = Icons.Default.Tune,
+                                    contentDescription = stringResource(R.string.cd_seek_preview_sync),
+                                    onClick = openSync,
+                                    upFocusRequester = progressUpTarget,
+                                    onDownKey = onHideControls,
+                                    onFocused = onResetHideTimer
+                                )
+                            }
                             if (uiState.playbackIssueReportsEnabled) {
                                 ReportControlButton(
                                     reportId = uiState.playbackIssueReportId,
@@ -2451,7 +2474,8 @@ private fun PlayerControlsProgressBarHost(
         downFocusRequester = downFocusRequester,
         onUpKey = onUpKey,
         onFocused = onFocused,
-        bufferedPosition = playbackTimeline.bufferedPosition
+        bufferedPosition = playbackTimeline.bufferedPosition,
+        overlay = { SeekPreviewCueTicks(viewModel, playbackTimeline.duration, Modifier.matchParentSize()) }
     )
 }
 
@@ -2603,7 +2627,9 @@ private fun ProgressBar(
     onUpKey: (() -> Unit)? = null,
     onFocused: (() -> Unit)? = null,
     /** Position (ms) up to which content is buffered. Pass 0 to skip the overlay. */
-    bufferedPosition: Long = 0L
+    bufferedPosition: Long = 0L,
+    /** Drawn over the track, e.g. seek-preview cue ticks. */
+    overlay: @Composable BoxScope.() -> Unit = {}
 ) {
     val accentBrush = NuvioTheme.palette.accentBrush()
     val progress = if (duration > 0) {
@@ -2740,6 +2766,7 @@ private fun ProgressBar(
                 .clip(RoundedCornerShape(3.dp))
                 .background(accentBrush)
         )
+        overlay()
     }
 }
 
@@ -2747,7 +2774,9 @@ private fun ProgressBar(
 private fun SeekOverlay(
     currentPosition: Long,
     duration: Long,
-    bufferedPosition: Long = 0L
+    bufferedPosition: Long = 0L,
+    preview: @Composable () -> Unit = {},
+    progressOverlay: @Composable BoxScope.() -> Unit = {}
 ) {
     Column(
         modifier = Modifier
@@ -2755,12 +2784,14 @@ private fun SeekOverlay(
             .padding(horizontal = NuvioTheme.spacing.xxl, vertical = NuvioTheme.spacing.xl)
     ) {
         CompositionLocalProvider(LocalLayoutDirection provides LayoutDirection.Ltr) {
+            preview()
             ProgressBar(
                 currentPosition = currentPosition,
                 duration = duration,
                 onSeekPreview = {},
                 onSeekCommit = {},
-                bufferedPosition = bufferedPosition
+                bufferedPosition = bufferedPosition,
+                overlay = progressOverlay
             )
 
             Spacer(modifier = Modifier.height(NuvioTheme.spacing.md))
@@ -2787,7 +2818,9 @@ private fun SeekOverlayHost(viewModel: PlayerViewModel) {
     SeekOverlay(
         currentPosition = playbackTimeline.currentPosition,
         duration = playbackTimeline.duration,
-        bufferedPosition = playbackTimeline.bufferedPosition
+        bufferedPosition = playbackTimeline.bufferedPosition,
+        preview = { SeekPreviewThumbnailHost(viewModel = viewModel) },
+        progressOverlay = { SeekPreviewCueTicks(viewModel, playbackTimeline.duration, Modifier.matchParentSize()) }
     )
 }
 

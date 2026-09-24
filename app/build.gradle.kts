@@ -106,6 +106,8 @@ android {
     defaultConfig {
         applicationId = if (autoSyncFork) "com.nuviodebug.com" else "com.nuvio.tv"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+        // Seekr seek-preview key, supplied to CI builds from the SEEKR_API_KEY secret.
+        buildConfigField("String", "SEEKR_API_KEY", buildConfigString(localProperties.getProperty("SEEKR_API_KEY", "").trim()))
         minSdk = 24
         targetSdk = 36
         versionCode = 1064
@@ -455,6 +457,9 @@ dependencies {
     implementation(libs.okhttp.logging)
     implementation(libs.moshi)
     ksp(libs.moshi.codegen)
+
+    // Seek-preview thumbnails (seekr.tv)
+    implementation("tv.seekr:seekr-compose:0.2.0")
 
     // Coroutines
     implementation(libs.coroutines.core)
