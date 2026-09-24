@@ -97,6 +97,42 @@ class DetailSeasonSelectionTest {
     }
 
     @Test
+    fun `return focus keeps played season when unwatched next to watch is still earlier`() {
+        assertEquals(
+            4,
+            resolveReturnFocusSeason(
+                playedSeason = 4,
+                selectedSeason = 1,
+                nextSeason = 1,
+                availableSeasons = seasons
+            )
+        )
+    }
+
+    @Test
+    fun `step selects played season when unwatched next to watch is still earlier`() {
+        assertEquals(
+            ReturnFocusStep.SelectSeason(4),
+            resolveReturnFocusStep(
+                playedSeason = 4,
+                playedEpisode = 10,
+                selectedSeason = 1,
+                nextSeason = 1,
+                availableSeasons = seasons,
+                allVideos = listOf(
+                    episode("s1e1", 1, 1),
+                    episode("s4e10", 4, 10)
+                ),
+                requestedEpisodeId = "s4e10",
+                episodesForSeason = listOf(episode("s1e1", 1, 1)),
+                nextVideoId = "s1e1",
+                alreadyRestoredId = null,
+                hasWaitedForSeasonAdvance = false
+            )
+        )
+    }
+
+    @Test
     fun `return focus waits only when a later season can still advance`() {
         assertTrue(shouldWaitForReturnFocusSeasonAdvance(3, 13, 3, season3And4Videos, seasons))
         assertTrue(shouldWaitForReturnFocusSeasonAdvance(3, 13, null, season3And4Videos, seasons))

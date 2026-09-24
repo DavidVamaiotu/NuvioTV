@@ -1646,6 +1646,7 @@ class MetaDetailsViewModel @Inject constructor(
 
     private fun selectSeason(season: Int) {
         val meta = _uiState.value.meta ?: return
+        suppressSeasonAutoSwitch = true
         val episodes = getEpisodesForSeason(meta.videos, season)
         _uiState.update {
             it.copy(

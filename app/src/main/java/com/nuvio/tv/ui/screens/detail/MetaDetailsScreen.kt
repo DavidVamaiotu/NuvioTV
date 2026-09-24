@@ -223,8 +223,9 @@ internal fun resolveReturnFocusSeason(
     return when {
         next != null && played != null && next > played -> next
         selected != null && played != null && selected > played -> selected
+        played != null -> played
         next != null -> next
-        else -> played ?: selected
+        else -> selected
     }
 }
 
@@ -1614,6 +1615,24 @@ private fun MetaDetailsContent(
             commentsListState.firstVisibleItemScrollOffset != 0
         ) {
             commentsListState.scrollToItem(0)
+        }
+    }
+
+    LaunchedEffect(
+        pendingRestoreType,
+        pendingRestoreEpisodeId,
+        selectedSeason,
+        seasons
+    ) {
+        if (pendingRestoreType != RestoreTarget.EPISODE) return@LaunchedEffect
+        val episodeId = pendingRestoreEpisodeId ?: return@LaunchedEffect
+        val targetSeason = meta.videos
+            .firstOrNull { it.id == episodeId }
+            ?.season
+            ?.takeIf { it in seasons }
+            ?: return@LaunchedEffect
+        if (targetSeason != selectedSeason) {
+            onSeasonSelected(targetSeason)
         }
     }
 

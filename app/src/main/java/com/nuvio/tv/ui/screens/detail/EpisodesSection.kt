@@ -147,19 +147,23 @@ fun SeasonTabs(
 
     var suppressFocusSwitch by remember { mutableStateOf(false) }
     var lastAppliedSeason by remember { mutableStateOf(selectedSeason) }
+    var lastFocusedSeason by remember { mutableStateOf(selectedSeason) }
+    val seasonFocusRequesters = remember { mutableMapOf<Int, FocusRequester>() }
     // Clear suppress whenever selectedSeason actually settles (composition runs
     // with the new value). This guarantees reset even if the scroll coroutine is cancelled.
     if (lastAppliedSeason != selectedSeason) {
         lastAppliedSeason = selectedSeason
         suppressFocusSwitch = false
+        lastFocusedSeason = selectedSeason
     }
 
     var pendingSeason by remember { mutableStateOf<Int?>(null) }
     LaunchedEffect(pendingSeason) {
         val target = pendingSeason ?: return@LaunchedEffect
         delay(150)
+        if (pendingSeason != target) return@LaunchedEffect
         onSeasonSelected(target)
-        pendingSeason = null
+        if (pendingSeason == target) pendingSeason = null
     }
 
     LaunchedEffect(sortedSeasons, selectedSeason) {
@@ -173,10 +177,23 @@ fun SeasonTabs(
         suppressFocusSwitch = false
     }
 
+    val restorerRequester = remember(lastFocusedSeason, selectedSeason, selectedTabFocusRequester) {
+        when {
+            lastFocusedSeason == selectedSeason -> selectedTabFocusRequester
+            else -> seasonFocusRequesters.getOrPut(lastFocusedSeason) { FocusRequester() }
+        }
+    }
+
     LazyRow(
         modifier = Modifier
             .fillMaxWidth()
-            .focusRestorer(selectedTabFocusRequester)
+            .focusRestorer {
+                if (suppressFocusSwitch || pendingSeason != null) {
+                    FocusRequester.Cancel
+                } else {
+                    restorerRequester
+                }
+            }
             .focusGroup(),
         state = lazyListState,
         contentPadding = PaddingValues(horizontal = NuvioTheme.spacing.xxxl, vertical = NuvioTheme.spacing.xl),
@@ -189,6 +206,11 @@ fun SeasonTabs(
             var isFocused by remember { mutableStateOf(false) }
             var longPressTriggered by remember { mutableStateOf(false) }
             val longPressKeyTracker = rememberLongPressKeyTracker()
+            val seasonFocusRequester = if (isSelected) {
+                selectedTabFocusRequester
+            } else {
+                remember(season) { seasonFocusRequesters.getOrPut(season) { FocusRequester() } }
+            }
 
             Card(
                 onClick = {
@@ -199,7 +221,7 @@ fun SeasonTabs(
                     }
                 },
                 modifier = Modifier
-                    .then(if (isSelected) Modifier.focusRequester(selectedTabFocusRequester) else Modifier)
+                    .focusRequester(seasonFocusRequester)
                     .focusProperties {
                         canFocus = isFocusEnabled
                         if (isRightEdge) right = FocusRequester.Cancel
@@ -214,8 +236,11 @@ fun SeasonTabs(
                     .onFocusChanged {
                     val nowFocused = it.isFocused
                     isFocused = nowFocused
-                    if (nowFocused && !isSelected && !suppressFocusSwitch) {
-                        pendingSeason = season
+                    if (nowFocused) {
+                        lastFocusedSeason = season
+                        if (!isSelected && !suppressFocusSwitch) {
+                            pendingSeason = season
+                        }
                     }
                 }
                     .onPreviewKeyEvent { event ->
