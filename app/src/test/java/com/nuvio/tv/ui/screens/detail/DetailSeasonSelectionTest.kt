@@ -78,6 +78,20 @@ class DetailSeasonSelectionTest {
                 playedSeason = 3,
                 selectedSeason = 4,
                 nextSeason = 3,
+                availableSeasons = seasons,
+                hasWaitedForSeasonAdvance = true
+            )
+        )
+    }
+
+    @Test
+    fun `return focus prefers played season over a later selected when opening an earlier episode`() {
+        assertEquals(
+            2,
+            resolveReturnFocusSeason(
+                playedSeason = 2,
+                selectedSeason = 4,
+                nextSeason = 1,
                 availableSeasons = seasons
             )
         )
@@ -125,6 +139,31 @@ class DetailSeasonSelectionTest {
                 ),
                 requestedEpisodeId = "s4e10",
                 episodesForSeason = listOf(episode("s1e1", 1, 1)),
+                nextVideoId = "s1e1",
+                alreadyRestoredId = null,
+                hasWaitedForSeasonAdvance = false
+            )
+        )
+    }
+
+    @Test
+    fun `step selects played season when returning from an earlier season episode`() {
+        assertEquals(
+            ReturnFocusStep.SelectSeason(2),
+            resolveReturnFocusStep(
+                playedSeason = 2,
+                playedEpisode = 5,
+                selectedSeason = 4,
+                nextSeason = 1,
+                availableSeasons = seasons,
+                allVideos = listOf(
+                    episode("s1e1", 1, 1),
+                    episode("s2e5", 2, 5),
+                    episode("s2e6", 2, 6),
+                    episode("s4e1", 4, 1)
+                ),
+                requestedEpisodeId = "s2e5",
+                episodesForSeason = listOf(episode("s4e1", 4, 1)),
                 nextVideoId = "s1e1",
                 alreadyRestoredId = null,
                 hasWaitedForSeasonAdvance = false

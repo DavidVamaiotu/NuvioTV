@@ -215,14 +215,18 @@ internal fun resolveReturnFocusSeason(
     playedSeason: Int?,
     selectedSeason: Int,
     nextSeason: Int?,
-    availableSeasons: Collection<Int>
+    availableSeasons: Collection<Int>,
+    hasWaitedForSeasonAdvance: Boolean = false
 ): Int? {
     val next = nextSeason?.takeIf { it in availableSeasons }
     val played = playedSeason?.takeIf { it in availableSeasons }
     val selected = selectedSeason.takeIf { it in availableSeasons }
     return when {
         next != null && played != null && next > played -> next
-        selected != null && played != null && selected > played -> selected
+        hasWaitedForSeasonAdvance &&
+            selected != null &&
+            played != null &&
+            selected > played -> selected
         played != null -> played
         next != null -> next
         else -> selected
@@ -294,7 +298,8 @@ internal fun resolveReturnFocusStep(
         playedSeason = playedSeason,
         selectedSeason = selectedSeason,
         nextSeason = nextSeason,
-        availableSeasons = availableSeasons
+        availableSeasons = availableSeasons,
+        hasWaitedForSeasonAdvance = hasWaitedForSeasonAdvance
     )
     if (seasonToShow != null && seasonToShow != selectedSeason) {
         return ReturnFocusStep.SelectSeason(seasonToShow)
