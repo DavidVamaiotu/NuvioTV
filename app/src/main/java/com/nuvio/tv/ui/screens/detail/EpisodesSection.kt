@@ -142,10 +142,7 @@ fun SeasonTabs(
     val tabTextStyle = remember(typography) { typography.titleMedium }
     val textSecondary = NuvioTheme.extendedColors.textSecondary
     val isRtl = LocalLayoutDirection.current == LayoutDirection.Rtl
-    val initialSeasonIndex = remember(sortedSeasons, selectedSeason) {
-        sortedSeasons.indexOf(selectedSeason).coerceAtLeast(0)
-    }
-    val lazyListState = rememberLazyListState(initialFirstVisibleItemIndex = initialSeasonIndex)
+    val lazyListState = rememberLazyListState()
 
     var suppressFocusSwitch by remember { mutableStateOf(false) }
     var lastAppliedSeason by remember { mutableStateOf(selectedSeason) }
@@ -171,11 +168,21 @@ fun SeasonTabs(
     LaunchedEffect(sortedSeasons, selectedSeason) {
         val selectedIndex = sortedSeasons.indexOf(selectedSeason)
         if (selectedIndex < 0) return@LaunchedEffect
-        snapshotFlow { lazyListState.layoutInfo.visibleItemsInfo.map { it.index } }
-            .first { it.isNotEmpty() }
-        if (selectedIndex in lazyListState.layoutInfo.visibleItemsInfo.map { it.index }) return@LaunchedEffect
+        val layoutInfo = snapshotFlow { lazyListState.layoutInfo }
+            .first { it.visibleItemsInfo.isNotEmpty() }
+        val visible = layoutInfo.visibleItemsInfo
+        if (visible.any { it.index == selectedIndex }) return@LaunchedEffect
+        val viewportSize = layoutInfo.viewportEndOffset - layoutInfo.viewportStartOffset
+        val approxItemSize = visible.lastOrNull()?.size
+            ?: visible.firstOrNull()?.size
+            ?: 0
+        val trailingOffset = -(viewportSize - approxItemSize).coerceAtLeast(0)
         suppressFocusSwitch = true
-        lazyListState.scrollToItem(selectedIndex)
+        if (selectedIndex > (visible.lastOrNull()?.index ?: -1)) {
+            lazyListState.scrollToItem(selectedIndex, scrollOffset = trailingOffset)
+        } else {
+            lazyListState.scrollToItem(selectedIndex)
+        }
         suppressFocusSwitch = false
     }
 
