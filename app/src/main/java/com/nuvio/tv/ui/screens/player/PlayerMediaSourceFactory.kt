@@ -36,6 +36,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.yield
+import com.nuvio.tv.core.connection.PlaybackThroughput
 import com.nuvio.tv.core.network.IPv4FirstDns
 import com.nuvio.tv.core.torrent.TorrServerBinary
 import com.nuvio.tv.data.local.PlayerSettings
@@ -155,7 +156,9 @@ internal class PlayerMediaSourceFactory(private val context: Context) {
         cacheKey: String? = null
     ): MediaSource {
         val sanitizedHeaders = sanitizeHeaders(headers)
-        val httpDataSourceFactory = PlayerPlaybackNetworking.createDataSourceFactory(context, sanitizedHeaders)
+        val httpDataSourceFactory = PlaybackThroughput.countingNetworkBytes(
+            PlayerPlaybackNetworking.createDataSourceFactory(context, sanitizedHeaders)
+        )
 
         val resolvedMimeType = mimeTypeOverride ?: inferMimeType(
             url = url,
@@ -209,6 +212,7 @@ internal class PlayerMediaSourceFactory(private val context: Context) {
             val okHttpFactory = OkHttpDataSource.Factory(playbackHttpClient).apply {
                 setDefaultRequestProperties(sanitizedHeaders)
                 setUserAgent(DEFAULT_USER_AGENT)
+                setTransferListener(PlaybackThroughput.networkByteCounter)
             }
             val sessionConnections = if (mp4SessionMode) 1 else parallelConnectionCount
             val sessionChunkBytes = if (mp4SessionMode) {

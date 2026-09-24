@@ -6,6 +6,7 @@ import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.nuvio.tv.R
+import com.nuvio.tv.core.connection.StreamConnectionFit
 import com.nuvio.tv.core.debrid.DebridStreamPresentation
 import com.nuvio.tv.core.debrid.DirectDebridResolveResult
 import com.nuvio.tv.core.debrid.DirectDebridResolver
@@ -472,9 +473,10 @@ class StreamScreenViewModel @Inject constructor(
             } else null
 
             fun applySuccess(addonStreamGroups: List<AddonStreams>, isAllLoaded: Boolean) {
-                val orderedAddonStreams = StreamAutoPlaySelector.orderAddonStreams(
-                    addonStreamGroups,
-                    installedAddonOrder
+                val orderedAddonStreams = StreamConnectionFit.order(
+                    context,
+                    _uiState.value.runtime,
+                    StreamAutoPlaySelector.orderAddonStreams(addonStreamGroups, installedAddonOrder)
                 )
 
                 // Preserve badges already computed by prior badge jobs so they

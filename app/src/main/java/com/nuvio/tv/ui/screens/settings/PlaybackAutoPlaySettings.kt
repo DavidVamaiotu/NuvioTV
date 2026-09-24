@@ -130,6 +130,8 @@ internal fun LazyListScope.autoPlaySettingsItems(
         }
     }
 
+    connectionSpeedSettingsItems(onItemFocused = onItemFocused)
+
     item(key = "autoplay_mode") {
         val modeLabel = when (playerSettings.streamAutoPlayMode) {
             StreamAutoPlayMode.MANUAL -> stringResource(R.string.autoplay_mode_manual)
