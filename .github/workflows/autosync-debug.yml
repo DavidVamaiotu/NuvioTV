@@ -111,6 +111,15 @@ jobs:
             echo "NUVIO_RELEASE_KEY_PASSWORD=$KEY_PASSWORD"
           } >> "$GITHUB_ENV"
 
+      - name: AutoSync unit tests (temporary, side branch only)
+        run: |
+          ./gradlew \
+            :app:testFullReleaseUnitTest \
+            --tests 'com.nuvio.tv.updater.*' \
+            --tests 'com.nuvio.tv.ui.screens.player.autosync.*' \
+            --build-cache \
+            --stacktrace
+
       - name: Fast Kotlin compile check
         run: |
           ./gradlew \
