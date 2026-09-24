@@ -1,0 +1,4 @@
+- **AutoSync plugs into Nuvio TV through a few marked hooks.** It no longer rewrites Nuvio TV's own subtitle code, so new Nuvio TV versions merge with fewer conflicts. Syncing works the same as before.
+- **Garbled accented characters fixed in the subtitle timing screen.** Nuvio TV's own subtitle parser is upstream's again, which brings back its cleanup of broken characters.
+- **AutoSync keeps its own subtitle reader** for SRT, WebVTT, ASS/SSA and TTML, moved unchanged into AutoSync's package.
+- **One download for the selected subtitle.** The on-screen subtitles and AutoSync now share it, and a failed download can no longer leave either one waiting.
