@@ -47,7 +47,10 @@ jobs:
             exit 1
           fi
 
-          if git log --format='%s' | grep -Fqx "Sync NuvioTV $UPSTREAM_TAG"; then
+          # Not `grep -q`: it exits on the first match, git log then dies of
+          # SIGPIPE and pipefail turns the match into a miss, so every
+          # scheduled run would think upstream needs syncing and re-release.
+          if git log --format='%s' | grep -Fx -- "Sync NuvioTV $UPSTREAM_TAG" >/dev/null; then
             NEEDS_SYNC=false
           else
             NEEDS_SYNC=true
@@ -507,7 +510,7 @@ jobs:
             --repo "$GITHUB_REPOSITORY"
             --target "$(git rev-parse HEAD)"
             --title "$AUTOSYNC_TAG"
-            --notes-file autosync-tv-release-notes.md"
+            --notes-file autosync-tv-release-notes.md
           )
 
           if [[ "$PRERELEASE" == "true" ]]; then
@@ -529,15 +532,11 @@ jobs:
           APK="NuvioTV-AutoSync-${BRIDGE_TAG}-universal.apk"
           gh release create "$BRIDGE_TAG" "$APK" --repo "$GITHUB_REPOSITORY" --target "$(git rev-parse HEAD)" --title "$BRIDGE_TAG" --latest --notes "Compatibility bridge for existing AutoSync 1.0.0 installs. The APK itself is canonical $AUTOSYNC_TAG, based on official NuvioTV $UPSTREAM_TAG. Future AutoSync releases use upstream-version-autosync.revision."
 
-      - name: Keep legacy updater bridge latest
-        if: github.event_name == 'push' || steps.upstream.outputs.should_release == 'true'
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          set -euo pipefail
-          if gh release view "1.0.1-autosync" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
-            gh release edit "1.0.1-autosync" --repo "$GITHUB_REPOSITORY" --latest
-          fi
+  legacy_bridge:
+    needs: release
+    if: needs.release.result == 'success'
+    uses: ./.github/workflows/autosync-legacy-bridge.yml
+    secrets: inherit
 
   stable_release:
     if: github.event_name == 'push' && github.event.head_commit.message == 'Trigger stable AutoSync TV release'

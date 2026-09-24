@@ -1,0 +1,85 @@
+name: AutoSync TV Legacy Bridge
+
+# 1.0.1-autosync exists only for pre-revision installs (0.9.5-beta-autosync,
+# 1.0.0-autosync). Their updater reads GitHub's "latest" release and strips a
+# bare "-autosync" suffix, so they can never see an x.y.z-autosync.N tag as
+# newer; the bridge has to stay "latest" for them.
+#
+# The bridge must never carry an old APK. It was frozen at 1.0.0-autosync.1
+# while newer builds shipped, so anyone installing "latest" (browser,
+# Obtainium, Downloader codes) got an older build whose versionCode Android
+# refuses to install over any current AutoSync install. Keep its APK equal to
+# the newest stable canonical release instead.
+
+on:
+  workflow_dispatch:
+  workflow_call:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: autosync-tv-legacy-bridge
+  cancel-in-progress: false
+
+jobs:
+  refresh:
+    name: Point the legacy bridge at the newest stable build
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Refresh 1.0.1-autosync
+        env:
+          GH_TOKEN: ${{ github.token }}
+          BRIDGE_TAG: 1.0.1-autosync
+        run: |
+          set -euo pipefail
+          REPO="$GITHUB_REPOSITORY"
+
+          if ! gh release view "$BRIDGE_TAG" --repo "$REPO" >/dev/null 2>&1; then
+            echo "No $BRIDGE_TAG release; nothing to bridge."
+            exit 0
+          fi
+
+          SOURCE_TAG="$(
+            gh api --paginate "repos/$REPO/releases?per_page=100" \
+              --jq '.[] | select(.draft == false and .prerelease == false) | .tag_name' |
+              grep -E '^[0-9]+\.[0-9]+\.[0-9]+-autosync\.[0-9]+$' |
+              sort -V |
+              tail -n 1 || true
+          )"
+          if [[ -z "$SOURCE_TAG" ]]; then
+            echo "No stable canonical AutoSync release found." >&2
+            exit 1
+          fi
+          echo "Newest stable canonical release: $SOURCE_TAG"
+
+          MARKER="<!-- autosync-bridge-source: $SOURCE_TAG -->"
+          CURRENT_BODY="$(gh release view "$BRIDGE_TAG" --repo "$REPO" --json body --jq .body)"
+
+          if ! grep -Fx -- "$MARKER" >/dev/null <<< "$CURRENT_BODY"; then
+            mkdir -p bridge
+            gh release download "$SOURCE_TAG" --repo "$REPO" --pattern '*-universal.apk' --dir bridge
+            SOURCE_APK="$(find bridge -maxdepth 1 -type f -name '*-universal.apk' | head -n 1)"
+            test -n "$SOURCE_APK"
+
+            BRIDGE_APK="NuvioTV-AutoSync-${BRIDGE_TAG}-universal.apk"
+            mv "$SOURCE_APK" "$BRIDGE_APK"
+            gh release upload "$BRIDGE_TAG" "$BRIDGE_APK" --repo "$REPO" --clobber
+
+            cat > bridge-notes.md <<EOF
+          Compatibility bridge for AutoSync TV installs from before revision numbering (0.9.5-beta-autosync and 1.0.0-autosync).
+
+          This APK is **$SOURCE_TAG**, the newest stable AutoSync TV build. It is refreshed on every stable release, so installing it never downgrades an existing AutoSync install.
+
+          After installing, the in-app updater follows the canonical \`x.y.z-autosync.N\` releases. See [$SOURCE_TAG](https://github.com/$REPO/releases/tag/$SOURCE_TAG) for its changelog.
+
+          $MARKER
+          EOF
+            gh release edit "$BRIDGE_TAG" --repo "$REPO" --notes-file bridge-notes.md
+            echo "Bridge now carries $SOURCE_TAG."
+          else
+            echo "Bridge already carries $SOURCE_TAG."
+          fi
+
+          gh release edit "$BRIDGE_TAG" --repo "$REPO" --latest
