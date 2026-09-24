@@ -83,7 +83,7 @@ class StreamConnectionFitTest {
             listOf(stream(name = "remux", sizeBytes = 60 * gb), stream(name = "hd", sizeBytes = 9 * gb))
         )
 
-        val ordered = fit.apply(listOf(unchanged, reordered))
+        val ordered = fit.applyToGroups(listOf(unchanged, reordered))
 
         assertSame(unchanged, ordered[0])
         assertEquals(listOf("hd", "remux"), ordered[1].streams.map { it.name })

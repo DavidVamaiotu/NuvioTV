@@ -14,7 +14,7 @@ internal class StreamConnectionFit(
     private val runtimeMinutes: Int,
     private val connectionMbps: Double,
 ) {
-    fun apply(groups: List<AddonStreams>): List<AddonStreams> = groups.map { group ->
+    fun applyToGroups(groups: List<AddonStreams>): List<AddonStreams> = groups.map { group ->
         val streams = apply(group.streams)
         if (streams === group.streams) group else group.copy(streams = streams)
     }
@@ -51,7 +51,7 @@ internal class StreamConnectionFit(
 
         /** [groups] ordered for the current connection, or unchanged when that isn't possible. */
         fun order(context: Context, runtimeMinutes: Int?, groups: List<AddonStreams>): List<AddonStreams> =
-            capture(context, runtimeMinutes)?.apply(groups) ?: groups
+            capture(context, runtimeMinutes)?.applyToGroups(groups) ?: groups
 
         /** As [order], taking the runtime from the playing file's duration. */
         fun orderByDuration(context: Context, durationMs: Long, groups: List<AddonStreams>): List<AddonStreams> =
