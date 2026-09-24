@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Generated: Nuvio RS migration prompts. -->
+<resources>
+    <string name="nuvio_rs_moved_title">Nuvio hedder nu Nuvio RS</string>
+    <string name="nuvio_rs_bridge_install_message">Denne app fortsætter som Nuvio RS, der installeres ved siden af den officielle Nuvio. Installer Nuvio RS for fortsat at få opdateringer. Dine indstillinger flyttes automatisk.</string>
+    <string name="nuvio_rs_bridge_installed_message">Nuvio RS er installeret. Åbn den for at flytte dine indstillinger, og afinstaller derefter denne gamle app.</string>
+    <string name="nuvio_rs_install">Installer Nuvio RS</string>
+    <string name="nuvio_rs_downloading" formatted="true">Downloader … %1$d%%</string>
+    <string name="nuvio_rs_download_failed">Nuvio RS kunne ikke downloades. Prøv igen senere.</string>
+    <string name="nuvio_rs_allow_installs">Tillad installationer fra denne app, og tryk derefter på Installer Nuvio RS igen.</string>
+    <string name="nuvio_rs_open">Åbn Nuvio RS</string>
+    <string name="nuvio_rs_uninstall_old">Afinstaller gammel app</string>
+    <string name="nuvio_rs_later">Senere</string>
+    <string name="nuvio_rs_imported_title">Indstillinger flyttet</string>
+    <string name="nuvio_rs_imported_message">Dine indstillinger er flyttet fra den gamle Nuvio-app, som du nu kan afinstallere. MDBList og Simkl skal forbindes igen.</string>
+    <string name="nuvio_rs_keep">Behold den</string>
+    <string name="nuvio_rs_pending_title">Flyt dine indstillinger</string>
+    <string name="nuvio_rs_pending_message">For at flytte dine indstillinger skal du åbne den gamle Nuvio-app og installere dens seneste opdatering og derefter vende tilbage hertil.</string>
+    <string name="nuvio_rs_ready_message">Dine indstillinger fra den gamle Nuvio-app er klar. Nuvio RS genstarter for at anvende dem i stedet for de nuværende indstillinger.</string>
+    <string name="nuvio_rs_restart">Genstart</string>
+    <string name="nuvio_rs_open_old">Åbn gammel app</string>
+    <string name="nuvio_rs_start_fresh">Start forfra</string>
+</resources>

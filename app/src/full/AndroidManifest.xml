@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <!-- Nuvio RS: settings hand-over from builds made before the rename (same signing key only). -->
+    <permission
+        android:name="com.nuvio.reshaped.tv.permission.MIGRATE"
+        android:protectionLevel="signature" />
+    <uses-permission android:name="com.nuvio.reshaped.tv.permission.MIGRATE" />
+    <uses-permission android:name="android.permission.REQUEST_DELETE_PACKAGES" />
+
+    <queries>
+        <package android:name="com.nuviodebug.com" />
+        <package android:name="com.nuvioreshaped.tv" />
+    </queries>
+
+    <application>
+        <provider
+            android:name="com.nuvio.tv.reshaped.ReshapedMigrationProvider"
+            android:authorities="${applicationId}.reshaped.migration"
+            android:exported="true"
+            android:permission="com.nuvio.reshaped.tv.permission.MIGRATE" />
+    </application>
+
+</manifest>

@@ -84,6 +84,9 @@ val useDebugReleaseSigning = env("CI_USE_DEBUG_SIGNING").equals("true", ignoreCa
 val autoSyncFork = parseBooleanProperty(
     resolveProperty(devProperties, localProperties, "AUTOSYNC_FORK", "false")
 )
+// Nuvio RS: releases also ship a universal "bridge" APK under the pre-rename id, so installs
+// from before the rename update in place and then hand their settings to Nuvio RS.
+val reshapedLegacyBridge = providers.gradleProperty("nuvio.reshaped.legacyBridge").orNull.toBoolean()
 val useLocalFfmpegDecoder = truthy(
     providers.gradleProperty("useLocalFfmpegDecoder").orNull
         ?: env("USE_LOCAL_FFMPEG_DECODER")
@@ -104,7 +107,7 @@ android {
     ndkVersion = "29.0.14206865"
 
     defaultConfig {
-        applicationId = if (autoSyncFork) "com.nuviodebug.com" else "com.nuvio.tv"
+        applicationId = if (autoSyncFork) (if (reshapedLegacyBridge) "com.nuviodebug.com" else "com.nuvioreshaped.tv") else "com.nuvio.tv"
         minSdk = 24
         targetSdk = 36
         versionCode = 1062
@@ -577,4 +580,9 @@ dependencies {
     testImplementation("com.squareup.okhttp3:mockwebserver:5.3.2")
     debugImplementation("androidx.compose.ui:ui-tooling")
     debugImplementation(libs.androidx.compose.ui.test.manifest)
+}
+
+// Nuvio RS: the "Nuvio RS" app name for every locale; the legacy bridge keeps the old name.
+if (autoSyncFork && !reshapedLegacyBridge) {
+    android.sourceSets.getByName("full").res.srcDir("src/reshaped/res")
 }

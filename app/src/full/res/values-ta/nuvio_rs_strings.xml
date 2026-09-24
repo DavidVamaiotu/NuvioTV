@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Generated: Nuvio RS migration prompts. -->
+<resources>
+    <string name="nuvio_rs_moved_title">Nuvio இப்போது Nuvio RS</string>
+    <string name="nuvio_rs_bridge_install_message">இந்த ஆப் Nuvio RS ஆகத் தொடர்கிறது, இது அதிகாரப்பூர்வ Nuvio உடன் சேர்த்து நிறுவப்படும். புதுப்பிப்புகளைத் தொடர்ந்து பெற Nuvio RS-ஐ நிறுவவும். உங்கள் அமைப்புகள் தானாக மாற்றப்படும்.</string>
+    <string name="nuvio_rs_bridge_installed_message">Nuvio RS நிறுவப்பட்டுள்ளது. உங்கள் அமைப்புகளை மாற்ற அதைத் திறந்து, பின்னர் இந்தப் பழைய ஆப்பை நிறுவல் நீக்கவும்.</string>
+    <string name="nuvio_rs_install">Nuvio RS-ஐ நிறுவு</string>
+    <string name="nuvio_rs_downloading" formatted="true">பதிவிறக்குகிறது… %1$d%%</string>
+    <string name="nuvio_rs_download_failed">Nuvio RS-ஐப் பதிவிறக்க முடியவில்லை. பிறகு மீண்டும் முயலவும்.</string>
+    <string name="nuvio_rs_allow_installs">இந்த ஆப்பிலிருந்து நிறுவ அனுமதித்து, மீண்டும் Nuvio RS-ஐ நிறுவு என்பதை அழுத்தவும்.</string>
+    <string name="nuvio_rs_open">Nuvio RS-ஐத் திற</string>
+    <string name="nuvio_rs_uninstall_old">பழைய ஆப்பை நிறுவல் நீக்கு</string>
+    <string name="nuvio_rs_later">பிறகு</string>
+    <string name="nuvio_rs_imported_title">அமைப்புகள் மாற்றப்பட்டன</string>
+    <string name="nuvio_rs_imported_message">உங்கள் அமைப்புகள் பழைய Nuvio ஆப்பிலிருந்து மாற்றப்பட்டன, இப்போது அதை நிறுவல் நீக்கலாம். MDBList, Simkl ஆகியவற்றை மீண்டும் இணைக்க வேண்டும்.</string>
+    <string name="nuvio_rs_keep">வைத்திரு</string>
+    <string name="nuvio_rs_pending_title">அமைப்புகளை மாற்றவும்</string>
+    <string name="nuvio_rs_pending_message">அமைப்புகளை மாற்ற, பழைய Nuvio ஆப்பைத் திறந்து அதன் சமீபத்திய புதுப்பிப்பை நிறுவி, இங்கே திரும்பவும்.</string>
+    <string name="nuvio_rs_ready_message">பழைய Nuvio ஆப்பின் அமைப்புகள் தயாராக உள்ளன. தற்போதைய அமைப்புகளுக்குப் பதிலாக அவற்றைப் பயன்படுத்த Nuvio RS மீண்டும் தொடங்கும்.</string>
+    <string name="nuvio_rs_restart">மீண்டும் தொடங்கு</string>
+    <string name="nuvio_rs_open_old">பழைய ஆப்பைத் திற</string>
+    <string name="nuvio_rs_start_fresh">புதிதாகத் தொடங்கு</string>
+</resources>
