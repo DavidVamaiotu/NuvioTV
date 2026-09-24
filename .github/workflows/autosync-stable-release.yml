@@ -56,27 +56,48 @@ jobs:
       - name: Generate stable changelog
         env:
           AUTOSYNC_TAG: ${{ steps.version.outputs.tag }}
+          PREVIOUS_TAG: ${{ steps.version.outputs.previous_tag }}
         run: |
-          cat > release-notes.md <<EOF
-          ## AutoSync TV stable changelog
+          set -euo pipefail
+          # Hand-written highlights come from the stable branch's notes file, shown only when it
+          # changed since the previous stable release so old notes never repeat.
+          NOTES_FILE=".github/autosync-release-notes.md"
+          HAS_PREVIOUS=false
+          if [[ -n "$PREVIOUS_TAG" ]] && git rev-parse --verify --quiet "$PREVIOUS_TAG^{commit}" >/dev/null; then
+            HAS_PREVIOUS=true
+          fi
 
-          This release ports the current AutoSync V2 improvements to the **stable NuvioTV 1.0.0 base**. It does not include NuvioTV 1.1.0 beta features.
-
-          - Restored the lightweight Mobile-style indexed PGS timing path and normal fallback when indexed PGS evidence is insufficient.
-          - Improved AutoSync confidence reporting with percentage and match-strength diagnostics.
-          - Improved failure/retry messages so rejected matches explain the actual outcome instead of only reporting a generic unreliable match.
-          - Added conservative localized-mismatch handling when every other confidence gate is strong.
-          - Added outlier-safe anchoring and independent-reference consistency checks.
-          - When confident references disagree, prefers the alignment with the tighter matched-group fit.
-          - Added replayable timing dumps for easier debugging of difficult subtitle sources.
-          - Preserved full-placement search for partial/CD1-CD2 subtitle releases.
-          - Prefetches the embedded subtitle index when playback starts so AutoSync can reuse the in-flight/cached index.
-          - Tries subtitle candidates in list order.
-          - Stops evaluating a subtitle once independent references establish that it has no viable fit, reducing wasted matching work.
-
-          Base: official **NuvioTV 1.0.0**
-          Release: **$AUTOSYNC_TAG**
-          EOF
+          {
+            echo "## AutoSync TV stable changelog"
+            echo
+            echo "Built on the **stable NuvioTV 1.0.0 base**. It does not include NuvioTV 1.1.0 beta features."
+            echo
+            if [[ -s "$NOTES_FILE" ]] && {
+              [[ "$HAS_PREVIOUS" != "true" ]] || ! git diff --quiet "$PREVIOUS_TAG" HEAD -- "$NOTES_FILE"
+            }; then
+              echo "### Highlights"
+              echo
+              cat "$NOTES_FILE"
+              echo
+            fi
+            if [[ "$HAS_PREVIOUS" == "true" ]]; then
+              CHANGES="$(
+                git log --reverse --no-merges --pretty=format:'%s' "$PREVIOUS_TAG..HEAD" -- . \
+                  ':(exclude).github/workflows/**' ':(exclude).github/autosync-release-notes.md' |
+                  grep -Ev '^(Trigger .*AutoSync|Release .*autosync|Sync NuvioTV )' || true
+              )"
+              if [[ -n "$CHANGES" ]]; then
+                echo "### Commits"
+                echo
+                while IFS= read -r line; do
+                  printf -- '- %s\n' "$line"
+                done <<< "$CHANGES"
+                echo
+              fi
+            fi
+            echo "Base: official **NuvioTV 1.0.0**"
+            echo "Release: **$AUTOSYNC_TAG**"
+          } > release-notes.md
 
           cat release-notes.md
 
