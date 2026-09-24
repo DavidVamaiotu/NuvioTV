@@ -79,7 +79,6 @@ import com.nuvio.tv.data.local.InternalPlayerEngine
 import com.nuvio.tv.data.local.PlayerSettings
 import com.nuvio.tv.data.repository.PlaybackIssueErrorInput
 import com.nuvio.tv.domain.model.Subtitle
-import com.nuvio.tv.ui.screens.player.autosync.AutoSyncExtractorsFactory
 import io.github.peerless2012.ass.media.kt.buildWithAssSupport
 import io.github.peerless2012.ass.media.type.AssRenderType
 import kotlinx.coroutines.async
@@ -961,13 +960,7 @@ internal fun PlayerRuntimeController.initializePlayer(
                         ),
                         stripDvRpu = stripDvRpuEnabled,
                         stripHdr10PlusSei = stripHdr10PlusSei
-                    )
-            val autoSyncExtractorsFactory: ExtractorsFactory =
-                AutoSyncExtractorsFactory(
-                    delegate = effectiveExtractorsFactory,
-                    sourceKey = url,
-                )
-            prefetchAutoSyncIndex(url, headers)
+                    ).let { autoSyncExtractorsFactory(it, url, headers) } // AutoSync hook
 
             setLoadingStatus(
                 phase = "building_player",
@@ -982,14 +975,14 @@ internal fun PlayerRuntimeController.initializePlayer(
                 // conversion never runs. (The libass path wires it via buildWithAssSupportCompat.)
                 mediaSourceFactory.configureSubtitleParsing(
                     // Always wire the Matroska factory — DTS-HD sniff must not depend on DV.
-                    extractorsFactory = autoSyncExtractorsFactory,
+                    extractorsFactory = effectiveExtractorsFactory,
                     subtitleParserFactory = null
                 )
                 val playerDataSourceFactory = PlayerPlaybackNetworking.createDataSourceFactory(context, headers)
                 ExoPlayer.Builder(context)
                     .setBandwidthMeter(bandwidthMeter)
                     .setTrackSelector(trackSelector!!)
-                    .setMediaSourceFactory(DefaultMediaSourceFactory(playerDataSourceFactory, autoSyncExtractorsFactory))
+                    .setMediaSourceFactory(DefaultMediaSourceFactory(playerDataSourceFactory, effectiveExtractorsFactory))
                     .setRenderersFactory(renderersFactory)
                     .setLoadControl(loadControl)
                     .setReleaseTimeoutMs(PLAYER_RELEASE_TIMEOUT_MS)
@@ -1006,7 +999,7 @@ internal fun PlayerRuntimeController.initializePlayer(
                     .setBandwidthMeter(bandwidthMeter)
                     .setLoadControl(loadControl)
                     .setTrackSelector(trackSelector!!)
-                    .setMediaSourceFactory(DefaultMediaSourceFactory(playerDataSourceFactory, autoSyncExtractorsFactory))
+                    .setMediaSourceFactory(DefaultMediaSourceFactory(playerDataSourceFactory, effectiveExtractorsFactory))
                     .setReleaseTimeoutMs(PLAYER_RELEASE_TIMEOUT_MS)
                     .setVideoChangeFrameRateStrategy(C.VIDEO_CHANGE_FRAME_RATE_STRATEGY_OFF)
                     .buildWithAssSupportCompat(
@@ -1014,7 +1007,7 @@ internal fun PlayerRuntimeController.initializePlayer(
                         renderType = libassRenderType,
                         playerMediaSourceFactory = mediaSourceFactory,
                         dataSourceFactory = playerDataSourceFactory,
-                        extractorsFactory = autoSyncExtractorsFactory,
+                        extractorsFactory = effectiveExtractorsFactory,
                         renderersFactory = renderersFactory
                     )
             } else {

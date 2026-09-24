@@ -1,13 +1,13 @@
-package com.nuvio.tv.ui.screens.player
+package com.nuvio.tv.ui.screens.player.autosync
 
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
 import org.junit.Test
 
-class PlayerSubtitleCueParserV2Test {
+class AutoSyncSubtitleCueParserTest {
     @Test
     fun ttmlUsesDeclaredFrameRate() {
-        val cues = PlayerSubtitleCueParser.parse(
+        val cues = AutoSyncSubtitleCueParser.parse(
             text = """
                 <tt xmlns:ttp="http://www.w3.org/ns/ttml#parameter" ttp:frameRate="25">
                   <body><div>
@@ -26,7 +26,7 @@ class PlayerSubtitleCueParserV2Test {
 
     @Test
     fun ttmlUsesFrameRateMultiplier() {
-        val cues = PlayerSubtitleCueParser.parse(
+        val cues = AutoSyncSubtitleCueParser.parse(
             text = """
                 <tt xmlns:ttp="http://www.w3.org/ns/ttml#parameter"
                     ttp:frameRate="30"
