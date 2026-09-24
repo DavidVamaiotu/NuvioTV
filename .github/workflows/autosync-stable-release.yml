@@ -243,7 +243,7 @@ jobs:
           set -euo pipefail
           gh release create "$AUTOSYNC_TAG"             "NuvioTV-AutoSync-${AUTOSYNC_TAG}-universal.apk"             "NuvioTV-AutoSync-${AUTOSYNC_TAG}-arm64-v8a.apk"             "NuvioTV-AutoSync-${AUTOSYNC_TAG}-armeabi-v7a.apk"             "NuvioTV-AutoSync-${AUTOSYNC_TAG}-x86_64.apk"             "NuvioTV-AutoSync-${AUTOSYNC_TAG}-x86.apk"             --repo "$GITHUB_REPOSITORY"             --target "$(git rev-parse HEAD)"             --title "$AUTOSYNC_TAG"             --notes-file release-notes.md             --latest=false
 
-  legacy_bridge:
+  mark_latest:
     needs: release
-    uses: ./.github/workflows/autosync-legacy-bridge.yml
+    uses: ./.github/workflows/autosync-mark-latest.yml
     secrets: inherit

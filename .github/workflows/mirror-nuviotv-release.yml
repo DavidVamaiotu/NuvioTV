@@ -214,13 +214,6 @@ jobs:
           NEXT_REVISION=$(( MAX_REVISION + 1 ))
           AUTOSYNC_TAG="${BASE_TAG}-autosync.${NEXT_REVISION}"
 
-          BRIDGE_TAG=""
-          if [[ "$BASE_TAG" == "1.0.0" ]]; then
-            if ! gh release view "1.0.1-autosync" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
-              BRIDGE_TAG="1.0.1-autosync"
-            fi
-          fi
-
           PREVIOUS_TAG=""
           if (( MAX_REVISION > 0 )); then
             PREVIOUS_TAG="${BASE_TAG}-autosync.${MAX_REVISION}"
@@ -229,7 +222,6 @@ jobs:
           echo "revision=$NEXT_REVISION" >> "$GITHUB_OUTPUT"
           echo "tag=$AUTOSYNC_TAG" >> "$GITHUB_OUTPUT"
           echo "previous_tag=$PREVIOUS_TAG" >> "$GITHUB_OUTPUT"
-          echo "bridge_tag=$BRIDGE_TAG" >> "$GITHUB_OUTPUT"
 
       - name: Generate AutoSync changelog
         if: steps.upstream.outputs.should_release == 'true'
@@ -379,7 +371,6 @@ jobs:
         if: steps.upstream.outputs.should_release == 'true'
         env:
           AUTOSYNC_TAG: ${{ steps.version.outputs.tag }}
-          BRIDGE_TAG: ${{ steps.version.outputs.bridge_tag }}
         run: |
           set -euo pipefail
           SOURCE_DIR="app/build/outputs/apk/full/release"
@@ -390,10 +381,6 @@ jobs:
             test -f "$SOURCE"
             cp "$SOURCE" "$TARGET"
           done
-
-          if [[ -n "$BRIDGE_TAG" ]]; then
-            cp "$SOURCE_DIR/app-full-universal-release.apk" "NuvioTV-AutoSync-${BRIDGE_TAG}-universal.apk"
-          fi
 
       - name: Verify in-place update compatibility
         if: steps.upstream.outputs.should_release == 'true'
@@ -520,22 +507,10 @@ jobs:
           ARGS+=(--latest=false)
           gh release create "${ARGS[@]}"
 
-      - name: Create one-time updater bridge
-        if: steps.upstream.outputs.should_release == 'true' && steps.version.outputs.bridge_tag != ''
-        env:
-          GH_TOKEN: ${{ github.token }}
-          UPSTREAM_TAG: ${{ steps.upstream.outputs.upstream_tag }}
-          AUTOSYNC_TAG: ${{ steps.version.outputs.tag }}
-          BRIDGE_TAG: ${{ steps.version.outputs.bridge_tag }}
-        run: |
-          set -euo pipefail
-          APK="NuvioTV-AutoSync-${BRIDGE_TAG}-universal.apk"
-          gh release create "$BRIDGE_TAG" "$APK" --repo "$GITHUB_REPOSITORY" --target "$(git rev-parse HEAD)" --title "$BRIDGE_TAG" --latest --notes "Compatibility bridge for existing AutoSync 1.0.0 installs. The APK itself is canonical $AUTOSYNC_TAG, based on official NuvioTV $UPSTREAM_TAG. Future AutoSync releases use upstream-version-autosync.revision."
-
-  legacy_bridge:
+  mark_latest:
     needs: release
     if: needs.release.result == 'success'
-    uses: ./.github/workflows/autosync-legacy-bridge.yml
+    uses: ./.github/workflows/autosync-mark-latest.yml
     secrets: inherit
 
   stable_release:
