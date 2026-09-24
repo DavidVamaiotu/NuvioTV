@@ -1928,20 +1928,23 @@ private fun MetaDetailsContent(
         if (commentsMode == CommentsMode.EPISODE) commentsEpisodeModeFocusRequester else commentsTitleModeFocusRequester
 
     val visiblePeopleTabsList = visiblePeopleTabItems.map { it.tab }
-    LaunchedEffect(visiblePeopleTabsList, pendingRestoreType) {
+    LaunchedEffect(visiblePeopleTabsList, pendingRestoreType, shouldSplitCollection) {
         if (visiblePeopleTabsList.isEmpty() || activePeopleTab in visiblePeopleTabsList) return@LaunchedEffect
-        if (pendingRestoreType == RestoreTarget.MORE_LIKE_THIS ||
-            pendingRestoreType == RestoreTarget.COLLECTION
-        ) {
+        if (pendingRestoreType == RestoreTarget.MORE_LIKE_THIS) return@LaunchedEffect
+        if (pendingRestoreType == RestoreTarget.COLLECTION && !shouldSplitCollection) {
             return@LaunchedEffect
         }
         activePeopleTab = visiblePeopleTabsList.first()
     }
 
-    LaunchedEffect(pendingRestoreType) {
+    LaunchedEffect(pendingRestoreType, shouldSplitCollection) {
         when (pendingRestoreType) {
             RestoreTarget.MORE_LIKE_THIS -> activePeopleTab = PeopleSectionTab.MORE_LIKE_THIS
-            RestoreTarget.COLLECTION -> activePeopleTab = PeopleSectionTab.COLLECTION
+            RestoreTarget.COLLECTION -> {
+                if (!shouldSplitCollection) {
+                    activePeopleTab = PeopleSectionTab.COLLECTION
+                }
+            }
             RestoreTarget.CAST_MEMBER -> if (PeopleSectionTab.CAST in visiblePeopleTabsList) {
                 activePeopleTab = PeopleSectionTab.CAST
             }
@@ -2510,7 +2513,9 @@ private fun MetaDetailsContent(
                             onTabFocused = { tab ->
                                 val lockedTab = when (pendingRestoreType) {
                                     RestoreTarget.MORE_LIKE_THIS -> PeopleSectionTab.MORE_LIKE_THIS
-                                    RestoreTarget.COLLECTION -> PeopleSectionTab.COLLECTION
+                                    RestoreTarget.COLLECTION -> {
+                                        if (shouldSplitCollection) null else PeopleSectionTab.COLLECTION
+                                    }
                                     RestoreTarget.CAST_MEMBER -> PeopleSectionTab.CAST
                                     RestoreTarget.COMPANY_OR_NETWORK -> activePeopleTab
                                     else -> null
