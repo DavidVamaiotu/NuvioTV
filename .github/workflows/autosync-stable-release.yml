@@ -220,64 +220,20 @@ jobs:
           path.write_text(text)
           PY
 
-      - name: Test AutoSync and updater, then build release
-        run: |
-          ./gradlew             :app:testFullReleaseUnitTest             --tests 'com.nuvio.tv.updater.*'             --tests 'com.nuvio.tv.ui.screens.player.autosync.*'             :app:assembleFullRelease             --build-cache             --stacktrace
-
-      - name: Prepare APKs
+      - name: Test AutoSync and updater, then build Nuvio RS and bridge APKs
         env:
           AUTOSYNC_TAG: ${{ steps.version.outputs.tag }}
         run: |
           set -euo pipefail
-          SOURCE_DIR="app/build/outputs/apk/full/release"
-
-          for ABI in universal arm64-v8a armeabi-v7a x86_64 x86; do
-            SOURCE="$SOURCE_DIR/app-full-${ABI}-release.apk"
-            TARGET="NuvioTV-AutoSync-${AUTOSYNC_TAG}-${ABI}.apk"
-            test -f "$SOURCE"
-            cp "$SOURCE" "$TARGET"
-          done
+          ./gradlew :app:testFullReleaseUnitTest --tests 'com.nuvio.tv.updater.*' --tests 'com.nuvio.tv.ui.screens.player.autosync.*' --build-cache --stacktrace
+          .github/scripts/reshaped-tv-apks.sh build "$AUTOSYNC_TAG"
 
       - name: Verify stable update compatibility
         env:
           GH_TOKEN: ${{ github.token }}
           AUTOSYNC_TAG: ${{ steps.version.outputs.tag }}
           PREVIOUS_TAG: ${{ steps.version.outputs.previous_tag }}
-        run: |
-          set -euo pipefail
-          NEW_APK="NuvioTV-AutoSync-${AUTOSYNC_TAG}-arm64-v8a.apk"
-          AAPT="$(find "$ANDROID_HOME/build-tools" -type f -name aapt | sort -V | tail -n 1)"
-          APKSIGNER="$(find "$ANDROID_HOME/build-tools" -type f -name apksigner | sort -V | tail -n 1)"
-
-          NEW_BADGING="$("$AAPT" dump badging "$NEW_APK" | head -n 1)"
-          NEW_PACKAGE="$(printf '%s\n' "$NEW_BADGING" | sed -n "s/^package: name='\([^']*\)'.*/\1/p")"
-          NEW_VERSION="$(printf '%s\n' "$NEW_BADGING" | sed -n "s/.*versionCode='\([^']*\)'.*/\1/p")"
-          test "$NEW_PACKAGE" = "com.nuviodebug.com"
-
-          if [[ -n "$PREVIOUS_TAG" ]]; then
-            mkdir -p previous
-            gh release download "$PREVIOUS_TAG" --repo "$GITHUB_REPOSITORY" --pattern '*arm64-v8a.apk' --dir previous
-            PREVIOUS_APK="$(find previous -maxdepth 1 -type f -name '*.apk' | head -n 1)"
-            test -n "$PREVIOUS_APK"
-
-            OLD_BADGING="$("$AAPT" dump badging "$PREVIOUS_APK" | head -n 1)"
-            OLD_PACKAGE="$(printf '%s\n' "$OLD_BADGING" | sed -n "s/^package: name='\([^']*\)'.*/\1/p")"
-            OLD_VERSION="$(printf '%s\n' "$OLD_BADGING" | sed -n "s/.*versionCode='\([^']*\)'.*/\1/p")"
-
-            cert_digest() {
-              "$APKSIGNER" verify --print-certs "$1" 2>&1 |
-                sed -nE 's/.*certificate SHA-256 digest:[[:space:]]*([^[:space:]]+).*/\1/p' |
-                head -n 1
-            }
-
-            NEW_CERT="$(cert_digest "$NEW_APK")"
-            OLD_CERT="$(cert_digest "$PREVIOUS_APK")"
-
-            test "$OLD_PACKAGE" = "$NEW_PACKAGE"
-            test -n "$NEW_CERT"
-            test "$OLD_CERT" = "$NEW_CERT"
-            (( NEW_VERSION > OLD_VERSION ))
-          fi
+        run: .github/scripts/reshaped-tv-apks.sh verify "$AUTOSYNC_TAG" "$PREVIOUS_TAG"
 
       - name: Publish stable AutoSync release
         env:
@@ -285,7 +241,14 @@ jobs:
           AUTOSYNC_TAG: ${{ steps.version.outputs.tag }}
         run: |
           set -euo pipefail
-          gh release create "$AUTOSYNC_TAG"             "NuvioTV-AutoSync-${AUTOSYNC_TAG}-universal.apk"             "NuvioTV-AutoSync-${AUTOSYNC_TAG}-arm64-v8a.apk"             "NuvioTV-AutoSync-${AUTOSYNC_TAG}-armeabi-v7a.apk"             "NuvioTV-AutoSync-${AUTOSYNC_TAG}-x86_64.apk"             "NuvioTV-AutoSync-${AUTOSYNC_TAG}-x86.apk"             --repo "$GITHUB_REPOSITORY"             --target "$(git rev-parse HEAD)"             --title "$AUTOSYNC_TAG"             --notes-file release-notes.md             --latest=false
+          # The bridge goes first for older clients that may simply use the first APK.
+          mapfile -t APKS < <(.github/scripts/reshaped-tv-apks.sh list "$AUTOSYNC_TAG")
+          gh release create "$AUTOSYNC_TAG" "${APKS[@]}" \
+            --repo "$GITHUB_REPOSITORY" \
+            --target "$(git rev-parse HEAD)" \
+            --title "$AUTOSYNC_TAG" \
+            --notes-file release-notes.md \
+            --latest=false
 
   mark_latest:
     needs: release

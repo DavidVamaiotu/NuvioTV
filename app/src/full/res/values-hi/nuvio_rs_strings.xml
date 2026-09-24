@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Generated: Nuvio RS migration prompts. -->
+<resources>
+    <string name="nuvio_rs_moved_title">Nuvio अब Nuvio RS है</string>
+    <string name="nuvio_rs_bridge_install_message">यह ऐप अब Nuvio RS के रूप में जारी है, जो आधिकारिक Nuvio के साथ इंस्टॉल होता है। अपडेट मिलते रहने के लिए Nuvio RS इंस्टॉल करें। आपकी सेटिंग्स अपने-आप ट्रांसफ़र हो जाती हैं।</string>
+    <string name="nuvio_rs_bridge_installed_message">Nuvio RS इंस्टॉल है। अपनी सेटिंग्स ट्रांसफ़र करने के लिए इसे खोलें, फिर यह पुराना ऐप अनइंस्टॉल करें।</string>
+    <string name="nuvio_rs_install">Nuvio RS इंस्टॉल करें</string>
+    <string name="nuvio_rs_downloading" formatted="true">डाउनलोड हो रहा है… %1$d%%</string>
+    <string name="nuvio_rs_download_failed">Nuvio RS डाउनलोड नहीं हो सका। बाद में फिर कोशिश करें।</string>
+    <string name="nuvio_rs_allow_installs">इस ऐप से इंस्टॉल करने की अनुमति दें, फिर से Nuvio RS इंस्टॉल करें दबाएँ।</string>
+    <string name="nuvio_rs_open">Nuvio RS खोलें</string>
+    <string name="nuvio_rs_uninstall_old">पुराना ऐप अनइंस्टॉल करें</string>
+    <string name="nuvio_rs_later">बाद में</string>
+    <string name="nuvio_rs_imported_title">सेटिंग्स ट्रांसफ़र हो गईं</string>
+    <string name="nuvio_rs_imported_message">आपकी सेटिंग्स पुराने Nuvio ऐप से ट्रांसफ़र हो गई हैं, अब आप उसे अनइंस्टॉल कर सकते हैं। MDBList और Simkl को फिर से कनेक्ट करना होगा।</string>
+    <string name="nuvio_rs_keep">रखें</string>
+    <string name="nuvio_rs_pending_title">अपनी सेटिंग्स ट्रांसफ़र करें</string>
+    <string name="nuvio_rs_pending_message">सेटिंग्स ट्रांसफ़र करने के लिए पुराना Nuvio ऐप खोलें और उसका नवीनतम अपडेट इंस्टॉल करें, फिर यहाँ वापस आएँ।</string>
+    <string name="nuvio_rs_ready_message">पुराने Nuvio ऐप की आपकी सेटिंग्स तैयार हैं। उन्हें मौजूदा सेटिंग्स की जगह लागू करने के लिए Nuvio RS रीस्टार्ट होगा।</string>
+    <string name="nuvio_rs_restart">रीस्टार्ट करें</string>
+    <string name="nuvio_rs_open_old">पुराना ऐप खोलें</string>
+    <string name="nuvio_rs_start_fresh">नए सिरे से शुरू करें</string>
+</resources>
