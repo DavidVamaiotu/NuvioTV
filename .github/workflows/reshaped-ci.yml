@@ -3,7 +3,7 @@ name: Nuvio RS rename CI (temporary)
 on:
   push:
     branches:
-      - reshaped-rename
+      - reshaped-rename-stable
 
 permissions:
   contents: read
@@ -121,14 +121,14 @@ jobs:
         run: ./gradlew :app:testFullReleaseUnitTest --tests 'com.nuvio.tv.updater.*' --tests 'com.nuvio.tv.ui.screens.player.autosync.*' --build-cache --stacktrace
 
       - name: Build Nuvio RS and bridge APKs
-        run: .github/scripts/reshaped-tv-apks.sh build 1.1.0-beta.1-autosync.99
+        run: .github/scripts/reshaped-tv-apks.sh build 1.0.0-autosync.99
 
       - name: Verify against the latest release
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           # Version codes are not stamped here, so only the identity checks are meaningful.
-          .github/scripts/reshaped-tv-apks.sh verify 1.1.0-beta.1-autosync.99
+          .github/scripts/reshaped-tv-apks.sh verify 1.0.0-autosync.99
           PREVIOUS="$(gh release list --repo "$GITHUB_REPOSITORY" --limit 1 --json tagName --jq '.[0].tagName')"
           source .github/scripts/reshaped-tv-apks.sh true
           tools
