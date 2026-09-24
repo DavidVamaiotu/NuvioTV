@@ -1264,10 +1264,14 @@ private fun MetaDetailsContent(
     val trailerListState = rememberLazyListState(prefetchStrategy = nestedPrefetchStrategy)
     val collectionListState = rememberLazyListState(prefetchStrategy = nestedPrefetchStrategy)
     val commentsListState = rememberLazyListState(prefetchStrategy = nestedPrefetchStrategy)
+    val networkLogosListState = rememberLazyListState(prefetchStrategy = nestedPrefetchStrategy)
+    val productionLogosListState = rememberLazyListState(prefetchStrategy = nestedPrefetchStrategy)
     var lastFocusedCastKey by rememberSaveable(meta.id) { mutableStateOf<String?>(null) }
     var lastFocusedMoreLikeItemId by rememberSaveable(meta.id) { mutableStateOf<String?>(null) }
     var lastFocusedTrailerId by rememberSaveable(meta.id) { mutableStateOf<String?>(null) }
     var lastFocusedCollectionItemId by rememberSaveable(meta.id) { mutableStateOf<String?>(null) }
+    var lastFocusedNetworkCompanyId by rememberSaveable(meta.id) { mutableStateOf<Int?>(null) }
+    var lastFocusedProductionCompanyId by rememberSaveable(meta.id) { mutableStateOf<Int?>(null) }
     var savedRestoreScrollIndex by rememberSaveable(meta.id) { mutableIntStateOf(-1) }
     var savedRestoreScrollOffset by rememberSaveable(meta.id) { mutableIntStateOf(0) }
     var pinnedPageIndex by remember { mutableIntStateOf(-1) }
@@ -2775,11 +2779,18 @@ private fun MetaDetailsContent(
                         CompanyLogosSection(
                             title = stringResource(R.string.detail_section_network),
                             companies = meta.networks,
+                            listState = networkLogosListState,
                             restoreCompanyId = if (!childOverlayVisible && pendingRestoreType == RestoreTarget.COMPANY_OR_NETWORK) pendingRestoreCompanyId else null,
                             restoreFocusToken = if (pendingRestoreType == RestoreTarget.COMPANY_OR_NETWORK) restoreFocusToken else 0,
+                            lastFocusedCompanyId = lastFocusedNetworkCompanyId,
+                            onLastFocusedCompanyIdChange = { lastFocusedNetworkCompanyId = it },
                             onRestoreFocusHandled = { clearPendingRestore() },
                             onCompanyFocused = { overflow -> onCompanyRowFocused(overflow) },
-                            upFocusRequester = if (shouldShowCommentsSection) commentsRowEntryFocusRequester else null,
+                            upFocusRequester = if (shouldShowCommentsSection) {
+                                commentsRowEntryFocusRequester
+                            } else {
+                                commentsUpFocusRequester
+                            },
                             sectionFocusRequester = networkSectionFocusRequester,
                             allowPageScroll = ::allowCompanyPageScroll,
                             windowResetKey = meta.id,
@@ -2798,11 +2809,18 @@ private fun MetaDetailsContent(
                         CompanyLogosSection(
                             title = stringResource(R.string.detail_section_production),
                             companies = meta.productionCompanies,
+                            listState = productionLogosListState,
                             restoreCompanyId = if (!childOverlayVisible && pendingRestoreType == RestoreTarget.COMPANY_OR_NETWORK) pendingRestoreCompanyId else null,
                             restoreFocusToken = if (pendingRestoreType == RestoreTarget.COMPANY_OR_NETWORK) restoreFocusToken else 0,
+                            lastFocusedCompanyId = lastFocusedProductionCompanyId,
+                            onLastFocusedCompanyIdChange = { lastFocusedProductionCompanyId = it },
                             onRestoreFocusHandled = { clearPendingRestore() },
                             onCompanyFocused = { overflow -> onCompanyRowFocused(overflow) },
-                            upFocusRequester = if (shouldShowCommentsSection && meta.networks.isEmpty()) commentsRowEntryFocusRequester else null,
+                            upFocusRequester = when {
+                                shouldShowCommentsSection && meta.networks.isEmpty() -> commentsRowEntryFocusRequester
+                                meta.networks.isEmpty() -> commentsUpFocusRequester
+                                else -> null
+                            },
                             sectionFocusRequester = productionSectionFocusRequester,
                             allowPageScroll = ::allowCompanyPageScroll,
                             windowResetKey = meta.id,
@@ -2821,11 +2839,18 @@ private fun MetaDetailsContent(
                         CompanyLogosSection(
                             title = stringResource(R.string.detail_section_production),
                             companies = meta.productionCompanies,
+                            listState = productionLogosListState,
                             restoreCompanyId = if (!childOverlayVisible && pendingRestoreType == RestoreTarget.COMPANY_OR_NETWORK) pendingRestoreCompanyId else null,
                             restoreFocusToken = if (pendingRestoreType == RestoreTarget.COMPANY_OR_NETWORK) restoreFocusToken else 0,
+                            lastFocusedCompanyId = lastFocusedProductionCompanyId,
+                            onLastFocusedCompanyIdChange = { lastFocusedProductionCompanyId = it },
                             onRestoreFocusHandled = { clearPendingRestore() },
                             onCompanyFocused = { overflow -> onCompanyRowFocused(overflow) },
-                            upFocusRequester = if (shouldShowCommentsSection) commentsRowEntryFocusRequester else null,
+                            upFocusRequester = if (shouldShowCommentsSection) {
+                                commentsRowEntryFocusRequester
+                            } else {
+                                commentsUpFocusRequester
+                            },
                             sectionFocusRequester = productionSectionFocusRequester,
                             allowPageScroll = ::allowCompanyPageScroll,
                             windowResetKey = meta.id,
@@ -2844,11 +2869,18 @@ private fun MetaDetailsContent(
                         CompanyLogosSection(
                             title = stringResource(R.string.detail_section_network),
                             companies = meta.networks,
+                            listState = networkLogosListState,
                             restoreCompanyId = if (!childOverlayVisible && pendingRestoreType == RestoreTarget.COMPANY_OR_NETWORK) pendingRestoreCompanyId else null,
                             restoreFocusToken = if (pendingRestoreType == RestoreTarget.COMPANY_OR_NETWORK) restoreFocusToken else 0,
+                            lastFocusedCompanyId = lastFocusedNetworkCompanyId,
+                            onLastFocusedCompanyIdChange = { lastFocusedNetworkCompanyId = it },
                             onRestoreFocusHandled = { clearPendingRestore() },
                             onCompanyFocused = { overflow -> onCompanyRowFocused(overflow) },
-                            upFocusRequester = if (shouldShowCommentsSection && meta.productionCompanies.isEmpty()) commentsRowEntryFocusRequester else null,
+                            upFocusRequester = when {
+                                shouldShowCommentsSection && meta.productionCompanies.isEmpty() -> commentsRowEntryFocusRequester
+                                meta.productionCompanies.isEmpty() -> commentsUpFocusRequester
+                                else -> null
+                            },
                             sectionFocusRequester = networkSectionFocusRequester,
                             allowPageScroll = ::allowCompanyPageScroll,
                             windowResetKey = meta.id,
