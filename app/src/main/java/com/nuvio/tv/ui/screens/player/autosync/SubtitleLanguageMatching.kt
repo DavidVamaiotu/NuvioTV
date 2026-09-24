@@ -1,4 +1,4 @@
-package com.nuvio.tv.ui.screens.player
+package com.nuvio.tv.ui.screens.player.autosync
 
 internal object SubtitleLanguageMatching {
     internal val BRAZILIAN_TAGS = listOf(

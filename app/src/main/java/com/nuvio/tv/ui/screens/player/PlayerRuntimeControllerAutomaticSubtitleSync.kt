@@ -5,10 +5,12 @@ import android.os.Looper
 import android.util.Log
 import android.widget.Toast
 import androidx.media3.common.C
+import androidx.media3.extractor.ExtractorsFactory
 import com.nuvio.tv.domain.model.Subtitle
 import com.nuvio.tv.ui.screens.player.autosync.AutoSyncAnalysisOutcome
 import com.nuvio.tv.ui.screens.player.autosync.AutoSyncCandidateScope
 import com.nuvio.tv.ui.screens.player.autosync.AutoSyncDebugLog
+import com.nuvio.tv.ui.screens.player.autosync.AutoSyncExtractorsFactory
 import com.nuvio.tv.ui.screens.player.autosync.AutoSyncMatchAssessment
 import com.nuvio.tv.ui.screens.player.autosync.AutoSyncMatchStrength
 import com.nuvio.tv.ui.screens.player.autosync.AutoSyncPreferences
@@ -19,6 +21,7 @@ import com.nuvio.tv.ui.screens.player.autosync.applyAutoSyncSidecarTimeline
 import com.nuvio.tv.ui.screens.player.autosync.maxAlignmentShiftMs
 import com.nuvio.tv.ui.screens.player.autosync.replaceAutoSyncSidecarSubtitle
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.flow.update
 import kotlin.math.abs
@@ -36,16 +39,39 @@ private fun PlayerRuntimeController.showAutoSyncToast(
     }
 }
 /**
+ * Wraps Nuvio's extractors so AutoSync can observe embedded subtitle timing (output is forwarded
+ * unchanged), and starts AutoSync's embedded subtitle index download while the stream opens.
+ */
+internal fun PlayerRuntimeController.autoSyncExtractorsFactory(
+    delegate: ExtractorsFactory,
+    url: String,
+    headers: Map<String, String>,
+): ExtractorsFactory {
+    val factory = AutoSyncExtractorsFactory(delegate = delegate, sourceKey = url)
+    prefetchAutoSyncIndex(url, headers)
+    return factory
+}
+
+/**
  * Starts the embedded subtitle index download while the stream opens, so a later AutoSync run
  * finds it cached or joins the in-flight load instead of starting when a subtitle is selected.
  */
-internal fun PlayerRuntimeController.prefetchAutoSyncIndex(
+private fun PlayerRuntimeController.prefetchAutoSyncIndex(
     url: String,
     headers: Map<String, String>,
 ) {
     AutoSyncPreferences.ensureLoaded(context)
     if (!AutoSyncPreferences.isEnabled(context)) return
     EmbeddedSubtitleTimelineLoader.prefetch(scope, url, headers)
+}
+
+/** The user picked [subtitle]: check only that subtitle, never swap in another one. */
+internal fun PlayerRuntimeController.runSelectedAutomaticSubtitleSync(subtitle: Subtitle) =
+    maybeRunAutomaticSubtitleSync(subtitle, AutoSyncCandidateScope.SELECTED_ONLY)
+
+internal fun PlayerRuntimeController.cancelAutomaticSubtitleSync() {
+    automaticSubtitleSyncJob?.cancel()
+    automaticSubtitleSyncJob = null
 }
 
 internal fun PlayerRuntimeController.maybeRunAutomaticSubtitleSync(
@@ -86,13 +112,14 @@ internal fun PlayerRuntimeController.maybeRunAutomaticSubtitleSync(
         .distinctBy { it.url }
     val candidateByUrl = candidatesAtStart.associateBy { it.url }
 
+    // One download feeds both the sidecar renderer and the analysis. It completes with null
+    // on failure or cancellation so neither side can wait on it forever.
+    val selectedBodyDeferred = CompletableDeferred<String?>()
     val started = startSidecarAddonSubtitle(
         subtitle = selectedSubtitle,
         rawBodyLoader = {
-            AutomaticSubtitleSync.downloadSubtitleBody(
-                url = selectedUrl,
-                headers = selectedSubtitle.headers.orEmpty(),
-            )
+            selectedBodyDeferred.await()
+                ?: throw IllegalStateException("Subtitle body unavailable")
         },
     )
     if (!started) {
@@ -100,13 +127,26 @@ internal fun PlayerRuntimeController.maybeRunAutomaticSubtitleSync(
         return
     }
 
-    val selectedBodyDeferred = sidecarRawBodyDeferredFor(selectedUrl)
     player.trackSelectionParameters = player.trackSelectionParameters
         .buildUpon()
         .setTrackTypeDisabled(C.TRACK_TYPE_TEXT, true)
         .build()
 
     automaticSubtitleSyncJob = scope.launch {
+        launch {
+            val body = try {
+                AutomaticSubtitleSync.downloadSubtitleBody(
+                    url = selectedUrl,
+                    headers = selectedSubtitle.headers.orEmpty(),
+                )
+            } catch (cancel: CancellationException) {
+                throw cancel
+            } catch (error: Exception) {
+                Log.w(PlayerRuntimeController.TAG, "AUTO_SYNC_V2 subtitle download failed", error)
+                null
+            }
+            selectedBodyDeferred.complete(body)
+        }
         try {
             Log.d(
                 PlayerRuntimeController.TAG,
@@ -286,6 +326,8 @@ internal fun PlayerRuntimeController.maybeRunAutomaticSubtitleSync(
             }
             showAutoSyncToast("Auto Sync • Sync failed • original timing kept")
         }
+    }.also { job ->
+        job.invokeOnCompletion { selectedBodyDeferred.complete(null) }
     }
 }
 

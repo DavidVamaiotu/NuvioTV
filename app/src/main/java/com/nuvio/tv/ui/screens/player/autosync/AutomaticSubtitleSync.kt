@@ -2,8 +2,6 @@ package com.nuvio.tv.ui.screens.player.autosync
 
 import android.os.SystemClock
 import androidx.media3.common.C
-import com.nuvio.tv.ui.screens.player.PlayerSubtitleCueParser
-import com.nuvio.tv.ui.screens.player.SubtitleLanguageMatching
 import com.nuvio.tv.ui.screens.player.SubtitleSyncCue
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Deferred
@@ -1818,7 +1816,7 @@ internal object AutomaticSubtitleSync {
                 val parseAndNormalize: suspend () -> List<SubtitleSyncCue> = {
                     withContext(Dispatchers.Default) {
                         val parseContext = currentCoroutineContext()
-                        val parsed = PlayerSubtitleCueParser.parse(
+                        val parsed = AutoSyncSubtitleCueParser.parse(
                             text = text,
                             sourceUrl = url,
                             cancellationCheck = { parseContext.ensureActive() },
