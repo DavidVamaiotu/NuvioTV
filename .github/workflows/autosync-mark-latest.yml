@@ -1,0 +1,44 @@
+name: AutoSync TV Mark Latest
+
+# Keep GitHub's "latest" release on the newest stable x.y.z-autosync.N, so
+# anyone installing "latest" gets the current stable build. Releases are
+# created with --latest=false and marked here by version, because creation
+# order differs from version order (stable and beta bases are released from
+# different branches).
+
+on:
+  workflow_dispatch:
+  workflow_call:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: autosync-tv-mark-latest
+  cancel-in-progress: false
+
+jobs:
+  mark:
+    name: Mark the newest stable AutoSync release latest
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Mark latest
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          LATEST_TAG="$(
+            gh api --paginate "repos/$GITHUB_REPOSITORY/releases?per_page=100" \
+              --jq '.[] | select(.draft == false and .prerelease == false) | .tag_name' |
+              grep -E '^[0-9]+\.[0-9]+\.[0-9]+-autosync\.[0-9]+$' |
+              sort -V |
+              tail -n 1 || true
+          )"
+          if [[ -z "$LATEST_TAG" ]]; then
+            echo "No stable canonical AutoSync release found." >&2
+            exit 1
+          fi
+
+          gh release edit "$LATEST_TAG" --repo "$GITHUB_REPOSITORY" --latest
+          echo "Latest release: $LATEST_TAG"
