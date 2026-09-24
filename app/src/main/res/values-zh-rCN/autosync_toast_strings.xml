@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- AutoSync toast messages. Generated; keep keys in sync across locales. -->
+<resources>
+    <string name="autosync_toast_analyzing">Auto Sync • 正在分析…</string>
+    <string name="autosync_toast_unsupported_renderer">Auto Sync • 不支持的字幕渲染器</string>
+    <string name="autosync_toast_load_failed">Auto Sync • 无法加载字幕</string>
+    <string name="autosync_toast_apply_failed">Auto Sync • 已找到匹配，但无法应用同步</string>
+    <string name="autosync_toast_sync_failed">Auto Sync • 同步失败 • 保留原始时间轴</string>
+    <string name="autosync_toast_analyze_failed">Auto Sync • 无法分析字幕</string>
+    <string name="autosync_toast_no_embedded_subtitles">Auto Sync • 未找到内嵌字幕</string>
+    <string name="autosync_toast_no_reference">Auto Sync • 没有可用的参考轨道</string>
+    <string name="autosync_toast_match_excellent">Auto Sync • 极佳匹配 (%1$d%%)</string>
+    <string name="autosync_toast_match_strong">Auto Sync • 高度匹配 (%1$d%%)</string>
+    <string name="autosync_toast_match_possible">Auto Sync • 可能匹配 (%1$d%%)</string>
+    <string name="autosync_toast_match_weak">Auto Sync • 弱匹配 (%1$d%%)</string>
+    <string name="autosync_toast_result_within_tolerance">已同步（在 %1$d 毫秒容差内）</string>
+    <string name="autosync_toast_result_localized_ignored">已忽略本地化差异</string>
+    <string name="autosync_toast_result_replaced">已替换字幕</string>
+    <string name="autosync_toast_result_drift_corrected">已校正漂移</string>
+    <string name="autosync_toast_result_in_sync">已同步</string>
+    <string name="autosync_toast_result_kept">保留原始时间轴</string>
+</resources>

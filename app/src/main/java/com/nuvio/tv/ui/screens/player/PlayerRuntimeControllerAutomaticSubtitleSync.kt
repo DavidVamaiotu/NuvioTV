@@ -1,11 +1,13 @@
 package com.nuvio.tv.ui.screens.player
 
+import android.content.Context
 import android.os.Handler
 import android.os.Looper
 import android.util.Log
 import android.widget.Toast
 import androidx.media3.common.C
 import androidx.media3.extractor.ExtractorsFactory
+import com.nuvio.tv.R
 import com.nuvio.tv.domain.model.Subtitle
 import com.nuvio.tv.ui.screens.player.autosync.AutoSyncAnalysisOutcome
 import com.nuvio.tv.ui.screens.player.autosync.AutoSyncCandidateScope
@@ -96,10 +98,10 @@ internal fun PlayerRuntimeController.maybeRunAutomaticSubtitleSync(
     val player = _exoPlayer ?: return
     val useLibass = requestedUseLibassByUser || activePlayerUsesLibass
 
-    showAutoSyncToast("Auto Sync • Analyzing…")
+    showAutoSyncToast(context.getString(R.string.autosync_toast_analyzing))
 
     if (!canAttachAddonSubtitleViaSidecar(selectedSubtitle)) {
-        showAutoSyncToast("Auto Sync • Unsupported subtitle renderer")
+        showAutoSyncToast(context.getString(R.string.autosync_toast_unsupported_renderer))
         return
     }
 
@@ -123,7 +125,7 @@ internal fun PlayerRuntimeController.maybeRunAutomaticSubtitleSync(
         },
     )
     if (!started) {
-        showAutoSyncToast("Auto Sync • Could not load subtitle")
+        showAutoSyncToast(context.getString(R.string.autosync_toast_load_failed))
         return
     }
 
@@ -202,7 +204,7 @@ internal fun PlayerRuntimeController.maybeRunAutomaticSubtitleSync(
                     "REJECT V2 - original subtitle timing kept",
                 )
                 showAutoSyncToast(
-                    buildAutoSyncFailureToast(
+                    context.buildAutoSyncFailureToast(
                         analysisOutcome = analysisOutcome,
                         assessment = rejectedAssessment,
                     ),
@@ -272,7 +274,7 @@ internal fun PlayerRuntimeController.maybeRunAutomaticSubtitleSync(
                     context,
                     "REJECT V2 - sidecar changed or apply failed",
                 )
-                showAutoSyncToast("Auto Sync • Match found, but sync could not be applied")
+                showAutoSyncToast(context.getString(R.string.autosync_toast_apply_failed))
                 return@launch
             }
 
@@ -306,7 +308,7 @@ internal fun PlayerRuntimeController.maybeRunAutomaticSubtitleSync(
                 },
             )
             showAutoSyncToast(
-                buildAutoSyncSuccessToast(
+                context.buildAutoSyncSuccessToast(
                     replacedSubtitle = chosenSubtitle.url != selectedUrl,
                     scale = timeline.alignmentScale,
                     interceptMs = timeline.alignmentInterceptMs,
@@ -324,14 +326,25 @@ internal fun PlayerRuntimeController.maybeRunAutomaticSubtitleSync(
             if (activeSidecarSubtitleKey == null) {
                 startSidecarAddonSubtitle(selectedSubtitle)
             }
-            showAutoSyncToast("Auto Sync • Sync failed • original timing kept")
+            showAutoSyncToast(context.getString(R.string.autosync_toast_sync_failed))
         }
     }.also { job ->
         job.invokeOnCompletion { selectedBodyDeferred.complete(null) }
     }
 }
 
-private fun buildAutoSyncSuccessToast(
+private fun Context.autoSyncToastPrefix(assessment: AutoSyncMatchAssessment): String =
+    getString(
+        when (assessment.strength) {
+            AutoSyncMatchStrength.EXCELLENT -> R.string.autosync_toast_match_excellent
+            AutoSyncMatchStrength.STRONG -> R.string.autosync_toast_match_strong
+            AutoSyncMatchStrength.POSSIBLE -> R.string.autosync_toast_match_possible
+            AutoSyncMatchStrength.WEAK -> R.string.autosync_toast_match_weak
+        },
+        assessment.confidencePercent,
+    )
+
+private fun Context.buildAutoSyncSuccessToast(
     replacedSubtitle: Boolean,
     scale: Double,
     interceptMs: Double,
@@ -339,38 +352,36 @@ private fun buildAutoSyncSuccessToast(
     localizedMismatchIgnored: Boolean,
     withinToleranceMs: Int?,
 ): String {
-    val prefix =
-        "Auto Sync • ${assessment.strength.displayName} match " +
-            "(${assessment.confidencePercent}%)"
-    return when {
-        withinToleranceMs != null -> "$prefix • in sync (within $withinToleranceMs ms tolerance)"
-        localizedMismatchIgnored -> "$prefix • localized mismatch ignored"
-        replacedSubtitle -> "$prefix • subtitle replaced"
-        abs(scale - 1.0) >= 0.0005 -> "$prefix • drift corrected"
-        abs(interceptMs) >= 250.0 -> "$prefix • ${formatAutoSyncOffset(interceptMs)}"
-        else -> "$prefix • already in sync"
+    val result = when {
+        withinToleranceMs != null ->
+            getString(R.string.autosync_toast_result_within_tolerance, withinToleranceMs)
+        localizedMismatchIgnored -> getString(R.string.autosync_toast_result_localized_ignored)
+        replacedSubtitle -> getString(R.string.autosync_toast_result_replaced)
+        abs(scale - 1.0) >= 0.0005 -> getString(R.string.autosync_toast_result_drift_corrected)
+        abs(interceptMs) >= 250.0 -> formatAutoSyncOffset(interceptMs)
+        else -> getString(R.string.autosync_toast_result_in_sync)
     }
+    return "${autoSyncToastPrefix(assessment)} • $result"
 }
 
-private fun buildAutoSyncFailureToast(
+private fun Context.buildAutoSyncFailureToast(
     analysisOutcome: AutoSyncAnalysisOutcome?,
     assessment: AutoSyncMatchAssessment?,
 ): String =
     when (analysisOutcome) {
         AutoSyncAnalysisOutcome.SUBTITLE_UNAVAILABLE ->
-            "Auto Sync • Could not analyze subtitle"
+            getString(R.string.autosync_toast_analyze_failed)
         AutoSyncAnalysisOutcome.NO_SUBTITLE_TRACKS ->
-            "Auto Sync • No embedded subtitles found"
+            getString(R.string.autosync_toast_no_embedded_subtitles)
         AutoSyncAnalysisOutcome.NO_USABLE_REFERENCE ->
-            "Auto Sync • No usable reference track"
+            getString(R.string.autosync_toast_no_reference)
         null -> {
             val resolvedAssessment =
                 assessment ?: AutoSyncMatchAssessment(
                     confidencePercent = 0,
                     strength = AutoSyncMatchStrength.WEAK,
                 )
-            "Auto Sync • ${resolvedAssessment.strength.displayName} match " +
-                "(${resolvedAssessment.confidencePercent}%) • original timing kept"
+            "${autoSyncToastPrefix(resolvedAssessment)} • ${getString(R.string.autosync_toast_result_kept)}"
         }
     }
 
