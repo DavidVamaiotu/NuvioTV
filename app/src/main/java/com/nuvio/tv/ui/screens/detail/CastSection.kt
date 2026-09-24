@@ -449,6 +449,13 @@ private fun CastMemberItem(
 
     var isFocused by remember { mutableStateOf(false) }
     val cardDepthStyle = LocalCardDepthStyle.current
+    val labelAreaHeight = remember(density, nameStyle, characterStyle) {
+        with(density) {
+            nameStyle.lineHeight.toDp() * 2 +
+                NuvioTheme.spacing.xs +
+                characterStyle.lineHeight.toDp()
+        }
+    }
 
     Column(
         modifier = Modifier.width(itemWidth),
@@ -518,30 +525,36 @@ private fun CastMemberItem(
 
         Spacer(modifier = Modifier.height(10.dp))
 
-        Text(
-            text = member.name,
-            style = nameStyle,
-            color = NuvioTheme.colors.TextSecondary,
-            maxLines = 2,
-            overflow = TextOverflow.Ellipsis
-        )
-
-        val character = member.character
-        if (!character.isNullOrBlank()) {
-            val displayCharacter = when {
-                character.equals("Creator", ignoreCase = true) -> stringResource(R.string.cast_role_creator)
-                character.equals("Director", ignoreCase = true) -> stringResource(R.string.cast_role_director)
-                character.equals("Writer", ignoreCase = true) -> stringResource(R.string.cast_role_writer)
-                else -> character
-            }
-            Spacer(modifier = Modifier.height(NuvioTheme.spacing.xs))
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(labelAreaHeight)
+        ) {
             Text(
-                text = displayCharacter,
-                style = characterStyle,
-                color = NuvioTheme.colors.TextTertiary,
-                maxLines = 1,
+                text = member.name,
+                style = nameStyle,
+                color = NuvioTheme.colors.TextSecondary,
+                maxLines = 2,
                 overflow = TextOverflow.Ellipsis
             )
+
+            val character = member.character
+            if (!character.isNullOrBlank()) {
+                val displayCharacter = when {
+                    character.equals("Creator", ignoreCase = true) -> stringResource(R.string.cast_role_creator)
+                    character.equals("Director", ignoreCase = true) -> stringResource(R.string.cast_role_director)
+                    character.equals("Writer", ignoreCase = true) -> stringResource(R.string.cast_role_writer)
+                    else -> character
+                }
+                Spacer(modifier = Modifier.height(NuvioTheme.spacing.xs))
+                Text(
+                    text = displayCharacter,
+                    style = characterStyle,
+                    color = NuvioTheme.colors.TextTertiary,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+            }
         }
     }
 }
