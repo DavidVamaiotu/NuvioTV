@@ -625,7 +625,9 @@ fun ClassicHomeContent(
                     }
                 }
                 ContinueWatchingSection(
-                    items = uiState.continueWatchingItems.withCustomPosterUrls(uiState.customPosterUrlPattern),
+                    items = uiState.continueWatchingItems.withCustomPosterUrls(
+                        com.nuvio.tv.core.poster.patternForScreen(uiState.customPosterUrlPattern, com.nuvio.tv.core.poster.CustomPosterScreen.CONTINUE_WATCHING, uiState.customPosterEnabledScreens)
+                    ),
                     onItemClick = { item ->
                         onContinueWatchingClick(item)
                     },
@@ -703,7 +705,9 @@ fun ClassicHomeContent(
                     }
                 }
                 ContinueWatchingSection(
-                    items = uiState.upcomingItems.withCustomPosterUrls(uiState.customPosterUrlPattern),
+                    items = uiState.upcomingItems.withCustomPosterUrls(
+                        com.nuvio.tv.core.poster.patternForScreen(uiState.customPosterUrlPattern, com.nuvio.tv.core.poster.CustomPosterScreen.CONTINUE_WATCHING, uiState.customPosterEnabledScreens)
+                    ),
                     title = stringResource(R.string.upcoming_section_title),
                     onItemClick = { item ->
                         onContinueWatchingClick(item)

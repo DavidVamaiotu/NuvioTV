@@ -78,6 +78,7 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.text.style.TextDirection
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.zIndex
@@ -1463,7 +1464,9 @@ private fun ModernCarouselCard(
                 } else if ((useLandscapeOverlayTreatment || isBackdropExpanded) && !isCollectionFolder && (item.metaPreview?.landscapePoster.isNullOrBlank() || customPosterLoadFailed)) {
                     Text(
                         text = item.title,
-                        style = titleStyle,
+                        style = titleStyle.copy(
+                            textDirection = item.title.contentTextDirection()
+                        ),
                         color = Color.White,
                         maxLines = 2,
                         overflow = TextOverflow.Ellipsis,
@@ -1493,7 +1496,9 @@ private fun ModernCarouselCard(
             ) {
                 Text(
                     text = item.title,
-                    style = titleStyle,
+                    style = titleStyle.copy(
+                        textDirection = item.title.contentTextDirection()
+                    ),
                     color = NuvioTheme.colors.TextPrimary,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis
@@ -1502,7 +1507,9 @@ private fun ModernCarouselCard(
                     Spacer(modifier = Modifier.height(NuvioTheme.spacing.xxs))
                     Text(
                         text = subtitle,
-                        style = MaterialTheme.typography.labelMedium,
+                        style = MaterialTheme.typography.labelMedium.copy(
+                            textDirection = subtitle.contentTextDirection()
+                        ),
                         color = NuvioTheme.colors.TextSecondary,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis

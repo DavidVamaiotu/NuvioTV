@@ -68,7 +68,9 @@ data class HomeUiState(
     val heroEnrichmentEnabled: Boolean = false,
     val startupAuthNotice: StartupAuthNotice? = null,
     val homeRows: List<HomeRow> = emptyList(),
-    val customPosterUrlPattern: String = ""
+    val customPosterUrlPattern: String = "",
+    val customPosterEnabledScreens: Set<com.nuvio.tv.core.poster.CustomPosterScreen> =
+        com.nuvio.tv.core.poster.CustomPosterScreen.ALL
 )
 
 @Immutable

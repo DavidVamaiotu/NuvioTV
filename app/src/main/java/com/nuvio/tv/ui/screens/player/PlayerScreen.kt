@@ -212,7 +212,9 @@ fun PlayerScreen(
     val currentOnBackPress by rememberUpdatedState(onBackPress)
     val currentOnPlayRecommendation by rememberUpdatedState(onPlayRecommendation)
     val currentOnOpenRecommendationDetails by rememberUpdatedState(onOpenRecommendationDetails)
-    val nextEpisodeForEndPrompt = uiState.nextEpisode?.takeIf { it.hasAired }
+    val nextEpisodeForEndPrompt = uiState.nextEpisode?.takeIf {
+        it.hasAired && !(it.released.isNullOrBlank() && it.available == false)
+    }
     val shouldConfirmNextEpisodeOnEnd =
         uiState.playbackEnded &&
             uiState.error == null &&
@@ -357,7 +359,9 @@ fun PlayerScreen(
             }
             shouldDispatchNatural -> {
                 viewModel.stopAndRelease()
-                val next = uiState.nextEpisode?.takeIf { it.hasAired }
+                val next = uiState.nextEpisode?.takeIf {
+                    it.hasAired && !(it.released.isNullOrBlank() && it.available == false)
+                }
                 val cb = currentOnPlaybackEnded
                 if (cb != null) {
                     cb(next?.videoId, next?.season, next?.episode, null)

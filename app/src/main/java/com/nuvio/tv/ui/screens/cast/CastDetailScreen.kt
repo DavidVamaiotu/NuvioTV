@@ -66,6 +66,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.text.style.TextDirection
 import com.nuvio.tv.ui.util.contentTextDirection
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -431,7 +432,8 @@ private fun HeroSection(
                 text = person.name,
                 style = MaterialTheme.typography.headlineLarge.copy(
                     fontWeight = FontWeight.Bold,
-                    letterSpacing = (-0.5).sp
+                    letterSpacing = (-0.5).sp,
+                    textDirection = person.name.contentTextDirection()
                 ),
                 color = NuvioTheme.colors.TextPrimary,
                 maxLines = 1,

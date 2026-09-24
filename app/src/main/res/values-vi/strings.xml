@@ -2010,6 +2010,7 @@
     <string name="library_sort_added_asc">Đã thêm ↑</string>
     <string name="library_sort_title_asc">Tên A-Z</string>
     <string name="library_sort_title_desc">Tên Z-A</string>
+    <string name="library_error_sort_failed">Không thể tải thứ tự sắp xếp. Đang hiển thị theo thứ tự của nhà cung cấp.</string>
     <string name="library_manage_lists">Quản lý danh sách</string>
     <string name="library_manage_trakt_lists">Quản lý danh sách Trakt</string>
     <string name="library_no_lists">Chưa có danh sách cá nhân.</string>

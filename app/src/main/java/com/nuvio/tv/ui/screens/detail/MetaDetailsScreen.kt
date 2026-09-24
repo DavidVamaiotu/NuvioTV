@@ -1785,6 +1785,7 @@ private fun MetaDetailsContent(
     val moreLikeThisSourceLabel = when (moreLikeThisSource) {
         MoreLikeThisSource.TMDB -> stringResource(R.string.detail_more_like_this_powered_by_tmdb)
         MoreLikeThisSource.TRAKT -> stringResource(R.string.detail_more_like_this_powered_by_trakt)
+        MoreLikeThisSource.SIMKL -> stringResource(R.string.detail_more_like_this_powered_by_simkl)
         null -> null
     }
     val peopleTabItems = remember(

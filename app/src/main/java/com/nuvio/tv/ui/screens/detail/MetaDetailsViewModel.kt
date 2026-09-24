@@ -93,6 +93,8 @@ class MetaDetailsViewModel @Inject constructor(
     private val traktCommentsService: TraktCommentsService,
     private val traktRelatedService: TraktRelatedService,
     private val traktSettingsDataStore: TraktSettingsDataStore,
+    private val simklRelatedService: com.nuvio.tv.data.simkl.SimklRelatedService,
+    private val simklAuthRepository: com.nuvio.tv.data.simkl.SimklAuthRepository,
     private val layoutPreferenceDataStore: LayoutPreferenceDataStore,
     private val playerSettingsDataStore: PlayerSettingsDataStore,
     private val profileManager: ProfileManager,
@@ -1207,15 +1209,17 @@ class MetaDetailsViewModel @Inject constructor(
     private fun loadMoreLikeThisAsync(meta: Meta) {
         moreLikeThisJob?.cancel()
         moreLikeThisJob = viewModelScope.launch {
-            val source = if (shouldLoadTraktMoreLikeThis(meta)) {
-                MoreLikeThisSource.TRAKT
-            } else {
-                val settings = tmdbSettingsDataStore.settings.first()
-                if (!shouldLoadMoreLikeThis(settings)) {
-                    _uiState.update { it.copy(moreLikeThis = emptyList(), moreLikeThisSource = null) }
-                    return@launch
+            val source = when {
+                shouldLoadSimklMoreLikeThis() -> MoreLikeThisSource.SIMKL
+                shouldLoadTraktMoreLikeThis(meta) -> MoreLikeThisSource.TRAKT
+                else -> {
+                    val settings = tmdbSettingsDataStore.settings.first()
+                    if (!shouldLoadMoreLikeThis(settings)) {
+                        _uiState.update { it.copy(moreLikeThis = emptyList(), moreLikeThisSource = null) }
+                        return@launch
+                    }
+                    MoreLikeThisSource.TMDB
                 }
-                MoreLikeThisSource.TMDB
             }
 
             val rawRecommendations = when (source) {
@@ -1228,6 +1232,19 @@ class MetaDetailsViewModel @Inject constructor(
                         )
                     }.getOrElse {
                         Log.w(TAG, "Failed to load Trakt related titles for ${meta.id}: ${it.message}")
+                        emptyList()
+                    }
+                }
+
+                MoreLikeThisSource.SIMKL -> {
+                    runCatching {
+                        simklRelatedService.getRelated(
+                            meta = meta,
+                            fallbackItemId = itemId,
+                            fallbackItemType = itemType
+                        )
+                    }.getOrElse {
+                        Log.w(TAG, "Failed to load Simkl related titles for ${meta.id}: ${it.message}")
                         emptyList()
                     }
                 }
@@ -1257,12 +1274,15 @@ class MetaDetailsViewModel @Inject constructor(
             }
 
             val pattern = layoutPreferenceDataStore.customPosterUrlPattern.first()
+            val enabledScreens = layoutPreferenceDataStore.customPosterEnabledScreens.first()
             val recommendations = if (hideUnreleasedContent) {
                 val today = LocalDate.now()
                 rawRecommendations.filterNot { it.isUnreleased(today) }
             } else {
                 rawRecommendations
-            }.withCustomPosterUrls(pattern)
+            }.withCustomPosterUrls(
+                com.nuvio.tv.core.poster.patternForScreen(pattern, com.nuvio.tv.core.poster.CustomPosterScreen.DETAILS, enabledScreens)
+            )
 
             _uiState.update { state ->
                 if (state.meta == null || state.meta.id == meta.id) {
@@ -1283,12 +1303,17 @@ class MetaDetailsViewModel @Inject constructor(
 
     private fun shouldLoadTraktMoreLikeThis(meta: Meta): Boolean {
         if (!traktAuthenticated) return false
-        if (moreLikeThisSourcePreference == com.nuvio.tv.data.local.MoreLikeThisSourcePreference.TMDB) return false
+        if (moreLikeThisSourcePreference != com.nuvio.tv.data.local.MoreLikeThisSourcePreference.TRAKT) return false
         return when (meta.type) {
             ContentType.MOVIE -> true
             ContentType.SERIES, ContentType.TV -> true
             else -> meta.apiType in listOf("movie", "series", "tv", "show")
         }
+    }
+
+    private fun shouldLoadSimklMoreLikeThis(): Boolean {
+        if (moreLikeThisSourcePreference != com.nuvio.tv.data.local.MoreLikeThisSourcePreference.SIMKL) return false
+        return simklAuthRepository.state.value.isAuthenticated
     }
 
     private fun loadCollectionAsync(collectionId: Int, collectionName: String?, settings: TmdbSettings) {
@@ -1310,12 +1335,15 @@ class MetaDetailsViewModel @Inject constructor(
             }
 
             val collectionPattern = layoutPreferenceDataStore.customPosterUrlPattern.first()
+            val collectionEnabledScreens = layoutPreferenceDataStore.customPosterEnabledScreens.first()
             val filteredItems = if (hideUnreleasedContent) {
                 val today = LocalDate.now()
                 collection.items.filterNot { it.isUnreleased(today) }
             } else {
                 collection.items
-            }.withCustomPosterUrls(collectionPattern)
+            }.withCustomPosterUrls(
+                com.nuvio.tv.core.poster.patternForScreen(collectionPattern, com.nuvio.tv.core.poster.CustomPosterScreen.DETAILS, collectionEnabledScreens)
+            )
 
             _uiState.update { state ->
                 state.copy(

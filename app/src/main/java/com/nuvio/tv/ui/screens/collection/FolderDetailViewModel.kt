@@ -682,7 +682,8 @@ class FolderDetailViewModel @Inject constructor(
                 skip = 0,
                 skipStep = skipStep,
                 extraArgs = extraArgs,
-                supportsSkip = supportsSkip
+                supportsSkip = supportsSkip,
+                posterScreen = com.nuvio.tv.core.poster.CustomPosterScreen.COLLECTIONS
             ).collect { result ->
                 when (result) {
                     is NetworkResult.Success -> {
@@ -771,7 +772,8 @@ class FolderDetailViewModel @Inject constructor(
                 skip = nextSkip,
                 skipStep = row.skipStep,
                 extraArgs = row.extraArgs,
-                supportsSkip = row.supportsSkip
+                supportsSkip = row.supportsSkip,
+                posterScreen = com.nuvio.tv.core.poster.CustomPosterScreen.COLLECTIONS
             ).collect { result ->
                 when (result) {
                     is NetworkResult.Success -> {
@@ -921,6 +923,7 @@ class FolderDetailViewModel @Inject constructor(
                 when (result) {
                     is NetworkResult.Success -> {
                         val posterPattern = layoutPreferenceDataStore.customPosterUrlPattern.first()
+                        val enabledScreens = layoutPreferenceDataStore.customPosterEnabledScreens.first()
                         _uiState.update { s ->
                             val tabs = s.tabs.toMutableList()
                             val currentRow = tabs.getOrNull(tabIndex)?.catalogRow
@@ -939,7 +942,7 @@ class FolderDetailViewModel @Inject constructor(
                             } else {
                                 filteredData
                             }
-                            if (tabIndex < tabs.size) tabs[tabIndex] = tabs[tabIndex].copy(catalogRow = row.copy(items = row.items.withCustomPosterUrls(posterPattern)), isLoading = false)
+                            if (tabIndex < tabs.size) tabs[tabIndex] = tabs[tabIndex].copy(catalogRow = row.copy(items = row.items.withCustomPosterUrls(com.nuvio.tv.core.poster.patternForScreen(posterPattern, com.nuvio.tv.core.poster.CustomPosterScreen.COLLECTIONS, enabledScreens))), isLoading = false)
                             s.copy(tabs = tabs)
                         }
                         rebuildAllTab()
@@ -983,6 +986,7 @@ class FolderDetailViewModel @Inject constructor(
                 when (result) {
                     is NetworkResult.Success -> {
                         val posterPattern = layoutPreferenceDataStore.customPosterUrlPattern.first()
+                        val enabledScreens = layoutPreferenceDataStore.customPosterEnabledScreens.first()
                         _uiState.update { s ->
                             val tabs = s.tabs.toMutableList()
                             val currentRow = tabs.getOrNull(tabIndex)?.catalogRow
@@ -1001,7 +1005,7 @@ class FolderDetailViewModel @Inject constructor(
                             } else {
                                 filteredData
                             }
-                            if (tabIndex < tabs.size) tabs[tabIndex] = tabs[tabIndex].copy(catalogRow = row.copy(items = row.items.withCustomPosterUrls(posterPattern)), isLoading = false)
+                            if (tabIndex < tabs.size) tabs[tabIndex] = tabs[tabIndex].copy(catalogRow = row.copy(items = row.items.withCustomPosterUrls(com.nuvio.tv.core.poster.patternForScreen(posterPattern, com.nuvio.tv.core.poster.CustomPosterScreen.COLLECTIONS, enabledScreens))), isLoading = false)
                             s.copy(tabs = tabs)
                         }
                         rebuildAllTab()

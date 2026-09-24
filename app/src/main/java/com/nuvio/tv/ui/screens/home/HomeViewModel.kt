@@ -524,6 +524,19 @@ class HomeViewModel @Inject constructor(
                     }
                 }
         }
+        viewModelScope.launch {
+            var initialScreens = true
+            layoutPreferenceDataStore.customPosterEnabledScreens
+                .distinctUntilChanged()
+                .collect { screens ->
+                    _uiState.update { it.copy(customPosterEnabledScreens = screens) }
+                    if (initialScreens) {
+                        initialScreens = false
+                    } else {
+                        refreshVisibleCatalogsPipeline(forceReplace = true)
+                    }
+                }
+        }
         // When "next up from furthest episode" changes, clear CW caches and retrigger pipeline
         viewModelScope.launch {
             var initial = true

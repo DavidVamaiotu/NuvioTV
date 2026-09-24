@@ -269,10 +269,14 @@ internal fun HomeViewModel.observeModernHomePresentationPipeline() {
                     homeRows = state.homeRows,
                     catalogRows = state.catalogRows,
                     continueWatchingItems = if (state.continueWatchingEnabled)
-                        state.continueWatchingItems.withCustomPosterUrls(state.customPosterUrlPattern)
+                        state.continueWatchingItems.withCustomPosterUrls(
+                            com.nuvio.tv.core.poster.patternForScreen(state.customPosterUrlPattern, com.nuvio.tv.core.poster.CustomPosterScreen.CONTINUE_WATCHING, state.customPosterEnabledScreens)
+                        )
                     else emptyList(),
                     upcomingItems = if (state.continueWatchingEnabled)
-                        state.upcomingItems.withCustomPosterUrls(state.customPosterUrlPattern)
+                        state.upcomingItems.withCustomPosterUrls(
+                            com.nuvio.tv.core.poster.patternForScreen(state.customPosterUrlPattern, com.nuvio.tv.core.poster.CustomPosterScreen.CONTINUE_WATCHING, state.customPosterEnabledScreens)
+                        )
                     else emptyList(),
                     useLandscapePosters = state.modernLandscapePostersEnabled,
                     showCatalogTypeSuffix = state.catalogTypeSuffixEnabled,
@@ -643,6 +647,8 @@ internal fun HomeViewModel.onItemFocusPipeline(item: MetaPreview) {
             }
 
         } finally {
+            // Release the claim only if it is still ours: a later focus may have claimed another item.
+            if (pendingTmdbEnrichItemId == item.id) pendingTmdbEnrichItemId = null
             if (_enrichingItemId.value == item.id) {
                 setEnrichingItemId(null)
                 // If enrichment completed but no enriched data exists for this item,
