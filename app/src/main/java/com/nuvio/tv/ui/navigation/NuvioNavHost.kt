@@ -355,7 +355,7 @@ private fun PlaybackNavHost(
                     )
                 },
                 onNavigateToDetail = { itemId, itemType, addonBaseUrl ->
-                    childNav.navigate(Screen.Detail.createRoute(itemId, itemType, addonBaseUrl))
+                    childNav.navigateNestedDetail(itemId, itemType, addonBaseUrl)
                 },
                 onPlayClick = { videoId, contentType, contentId, title, poster, backdrop, logo, season, episode, episodeName, genres, year, runtime, contentLanguage ->
                     navController.navigate(

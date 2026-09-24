@@ -36,6 +36,7 @@ import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
 import com.nuvio.tv.ui.screens.cast.CastDetailScreen
+import java.util.WeakHashMap
 import com.nuvio.tv.ui.screens.detail.MetaDetailsScreen
 import com.nuvio.tv.ui.screens.tmdb.TmdbEntityBrowseScreen
 import com.nuvio.tv.ui.theme.NuvioTheme
@@ -45,6 +46,14 @@ internal const val DETAIL_CHILD_IDLE = "detail_child_idle"
 internal val LocalDetailChildClosedEpoch = staticCompositionLocalOf { 0 }
 
 internal val LocalDetailChildOverlayVisible = staticCompositionLocalOf { false }
+
+private const val DETAIL_CHILD_MAX_NESTED_DEPTH = 8
+
+private val nestedDetailRebuildGates = WeakHashMap<NavHostController, NestedDetailRebuildGate>()
+
+private class NestedDetailRebuildGate {
+    var isRebuilding by mutableStateOf(false)
+}
 
 @OptIn(ExperimentalComposeUiApi::class)
 @Composable
@@ -59,24 +68,33 @@ internal fun DetailChildHost(
     var childRoutesRestored by remember { mutableStateOf(false) }
     var overlayOpen by rememberSaveable { mutableStateOf(false) }
     var closedEpoch by rememberSaveable { mutableIntStateOf(0) }
+    val rebuildGate = remember { NestedDetailRebuildGate() }
     val overlayVisible = overlayOpen ||
         showingChild ||
-        (!childRoutesRestored && savedChildRoutes.isNotEmpty())
+        (!childRoutesRestored && savedChildRoutes.isNotEmpty()) ||
+        rebuildGate.isRebuilding
 
     DisposableEffect(childNav) {
+        nestedDetailRebuildGates[childNav] = rebuildGate
         val listener = NavController.OnDestinationChangedListener { _, destination, _ ->
             val nowOpen = destination.route.orEmpty().let { it.isNotEmpty() && it != DETAIL_CHILD_IDLE }
-            if (overlayOpen && !nowOpen) {
+            if (overlayOpen && !nowOpen && !rebuildGate.isRebuilding) {
                 closedEpoch += 1
             }
             overlayOpen = nowOpen
         }
         childNav.addOnDestinationChangedListener(listener)
-        onDispose { childNav.removeOnDestinationChangedListener(listener) }
+        onDispose {
+            childNav.removeOnDestinationChangedListener(listener)
+            if (nestedDetailRebuildGates[childNav] === rebuildGate) {
+                nestedDetailRebuildGates.remove(childNav)
+            }
+        }
     }
 
     LaunchedEffect(Unit) {
-        savedChildRoutes.forEach { route ->
+        childNav.popBackStack(DETAIL_CHILD_IDLE, inclusive = false)
+        applyNestedDetailCap(savedChildRoutes).forEach { route ->
             childNav.navigate(route)
         }
         childRoutesRestored = true
@@ -144,7 +162,7 @@ internal fun DetailChildHost(
                         CastDetailScreen(
                             onBackPress = { childNav.popBackStack() },
                             onNavigateToDetail = { itemId, itemType, addonBaseUrl ->
-                                childNav.navigate(Screen.Detail.createRoute(itemId, itemType, addonBaseUrl))
+                                childNav.navigateNestedDetail(itemId, itemType, addonBaseUrl)
                             }
                         )
                     }
@@ -165,7 +183,7 @@ internal fun DetailChildHost(
                         TmdbEntityBrowseScreen(
                             onBackPress = { childNav.popBackStack() },
                             onNavigateToDetail = { itemId, itemType, addonBaseUrl ->
-                                childNav.navigate(Screen.Detail.createRoute(itemId, itemType, addonBaseUrl))
+                                childNav.navigateNestedDetail(itemId, itemType, addonBaseUrl)
                             }
                         )
                     }
@@ -234,7 +252,7 @@ internal fun DetailChildHost(
                             )
                         },
                         onNavigateToDetail = { itemId, itemType, addonBaseUrl ->
-                            childNav.navigate(Screen.Detail.createRoute(itemId, itemType, addonBaseUrl))
+                            childNav.navigateNestedDetail(itemId, itemType, addonBaseUrl)
                         },
                         onPlayClick = parentNavController::navigateToDetailStream,
                         onPlayManuallyClick = { videoId, contentType, contentId, title, poster, backdrop, logo, season, episode, episodeName, genres, year, runtime, contentLanguage ->
@@ -299,6 +317,45 @@ private fun NavBackStackEntry.toSavedChildRoute(): String? {
             )
         }
         else -> null
+    }
+}
+
+internal fun NavHostController.navigateNestedDetail(
+    itemId: String,
+    itemType: String,
+    addonBaseUrl: String? = null
+) {
+    val route = Screen.Detail.createRoute(itemId, itemType, addonBaseUrl)
+    val detailCount = currentBackStack.value.count { it.destination.route == Screen.Detail.route }
+    if (detailCount < DETAIL_CHILD_MAX_NESTED_DEPTH) {
+        navigate(route)
+        return
+    }
+    val rebuilt = applyNestedDetailCap(
+        listOf(DETAIL_CHILD_IDLE) +
+            currentBackStack.value.mapNotNull { it.toSavedChildRoute() } +
+            route
+    )
+    val gate = nestedDetailRebuildGates[this]
+    gate?.isRebuilding = true
+    try {
+        popBackStack(DETAIL_CHILD_IDLE, inclusive = false)
+        rebuilt.filter { it != DETAIL_CHILD_IDLE }.forEach { navigate(it) }
+    } finally {
+        gate?.isRebuilding = false
+    }
+}
+
+private fun isNestedDetailRoute(route: String): Boolean = route.startsWith("detail/")
+
+private fun applyNestedDetailCap(stack: List<String>): List<String> {
+    val detailIndices = stack.withIndex().filter { isNestedDetailRoute(it.value) }.map { it.index }
+    if (detailIndices.size <= DETAIL_CHILD_MAX_NESTED_DEPTH) return stack
+    // Keep the newest N Details as a suffix. Do not assume index 0 is idle —
+    // savedChildRoutes (process/config replay) never includes DETAIL_CHILD_IDLE.
+    val firstKept = detailIndices[detailIndices.size - DETAIL_CHILD_MAX_NESTED_DEPTH]
+    return stack.filterIndexed { index, route ->
+        route == DETAIL_CHILD_IDLE || index >= firstKept
     }
 }
 
