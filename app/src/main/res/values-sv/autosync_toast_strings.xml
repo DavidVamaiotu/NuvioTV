@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- AutoSync toast messages. Generated; keep keys in sync across locales. -->
+<resources>
+    <string name="autosync_toast_analyzing">Auto Sync • Analyserar…</string>
+    <string name="autosync_toast_unsupported_renderer">Auto Sync • Undertextrendering stöds inte</string>
+    <string name="autosync_toast_load_failed">Auto Sync • Kunde inte läsa in undertext</string>
+    <string name="autosync_toast_apply_failed">Auto Sync • Matchning hittades, men synkroniseringen kunde inte tillämpas</string>
+    <string name="autosync_toast_sync_failed">Auto Sync • Synkroniseringen misslyckades • ursprunglig timing behållen</string>
+    <string name="autosync_toast_analyze_failed">Auto Sync • Kunde inte analysera undertext</string>
+    <string name="autosync_toast_no_embedded_subtitles">Auto Sync • Inga inbäddade undertexter hittades</string>
+    <string name="autosync_toast_no_reference">Auto Sync • Inget användbart referensspår</string>
+    <string name="autosync_toast_match_excellent">Auto Sync • Utmärkt matchning (%1$d%%)</string>
+    <string name="autosync_toast_match_strong">Auto Sync • Stark matchning (%1$d%%)</string>
+    <string name="autosync_toast_match_possible">Auto Sync • Möjlig matchning (%1$d%%)</string>
+    <string name="autosync_toast_match_weak">Auto Sync • Svag matchning (%1$d%%)</string>
+    <string name="autosync_toast_result_within_tolerance">synkad (inom toleransen %1$d ms)</string>
+    <string name="autosync_toast_result_localized_ignored">lokaliseringsavvikelse ignorerad</string>
+    <string name="autosync_toast_result_replaced">undertext ersatt</string>
+    <string name="autosync_toast_result_drift_corrected">drift korrigerad</string>
+    <string name="autosync_toast_result_in_sync">redan synkad</string>
+    <string name="autosync_toast_result_kept">ursprunglig timing behållen</string>
+</resources>

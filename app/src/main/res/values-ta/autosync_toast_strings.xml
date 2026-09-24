@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- AutoSync toast messages. Generated; keep keys in sync across locales. -->
+<resources>
+    <string name="autosync_toast_analyzing">Auto Sync • பகுப்பாய்வு செய்கிறது…</string>
+    <string name="autosync_toast_unsupported_renderer">Auto Sync • ஆதரிக்கப்படாத வசன ரெண்டரர்</string>
+    <string name="autosync_toast_load_failed">Auto Sync • வசனத்தை ஏற்ற முடியவில்லை</string>
+    <string name="autosync_toast_apply_failed">Auto Sync • பொருத்தம் கிடைத்தது, ஆனால் ஒத்திசைவைப் பயன்படுத்த முடியவில்லை</string>
+    <string name="autosync_toast_sync_failed">Auto Sync • ஒத்திசைவு தோல்வியடைந்தது • அசல் நேரம் வைக்கப்பட்டது</string>
+    <string name="autosync_toast_analyze_failed">Auto Sync • வசனத்தைப் பகுப்பாய்வு செய்ய முடியவில்லை</string>
+    <string name="autosync_toast_no_embedded_subtitles">Auto Sync • உட்பொதிந்த வசனங்கள் இல்லை</string>
+    <string name="autosync_toast_no_reference">Auto Sync • பயன்படுத்தக்கூடிய குறிப்பு டிராக் இல்லை</string>
+    <string name="autosync_toast_match_excellent">Auto Sync • சிறந்த பொருத்தம் (%1$d%%)</string>
+    <string name="autosync_toast_match_strong">Auto Sync • வலுவான பொருத்தம் (%1$d%%)</string>
+    <string name="autosync_toast_match_possible">Auto Sync • சாத்தியமான பொருத்தம் (%1$d%%)</string>
+    <string name="autosync_toast_match_weak">Auto Sync • பலவீனமான பொருத்தம் (%1$d%%)</string>
+    <string name="autosync_toast_result_within_tolerance">ஒத்திசைவில் உள்ளது (%1$d ms வரம்பிற்குள்)</string>
+    <string name="autosync_toast_result_localized_ignored">உள்ளூர்மயமாக்கல் வேறுபாடு புறக்கணிக்கப்பட்டது</string>
+    <string name="autosync_toast_result_replaced">வசனம் மாற்றப்பட்டது</string>
+    <string name="autosync_toast_result_drift_corrected">நகர்வு சரிசெய்யப்பட்டது</string>
+    <string name="autosync_toast_result_in_sync">ஏற்கனவே ஒத்திசைவில் உள்ளது</string>
+    <string name="autosync_toast_result_kept">அசல் நேரம் வைக்கப்பட்டது</string>
+</resources>
