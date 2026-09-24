@@ -35,6 +35,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
+import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -107,6 +108,7 @@ import com.nuvio.tv.ui.util.rememberLongPressKeyTracker
 private const val EPISODE_CARD_CONTENT_TYPE = "episode_card"
 private const val EPISODE_SCROLL_REPEAT_THROTTLE_MS = 80L
 private const val EPISODE_RESTORE_FALLBACK_MS = 250L
+private const val EPISODE_RESTORE_FOCUS_ATTEMPTS = 24
 private const val EPISODE_OVERLAY_PREFETCH_DELAY_MS = 120L
 
 @OptIn(ExperimentalTvMaterial3Api::class, androidx.compose.ui.ExperimentalComposeUiApi::class)
@@ -331,7 +333,6 @@ fun EpisodesRow(
     windowResetKey: String? = null
 ) {
     val dedupedEpisodes = remember(episodes) { episodes.distinctBy { it.id } }
-    val restoreTargetRequester = restoreEpisodeId?.let { episodeFocusRequesters[it] }
     var optionsEpisode by remember { mutableStateOf<Video?>(null) }
     val isOverlayOpen = optionsEpisode != null
     val cardMetrics = rememberEpisodeCardMetrics(posterCardCornerRadiusDp)
@@ -362,11 +363,14 @@ fun EpisodesRow(
         episodeFocusRequesters.keys.retainAll(episodeIds)
     }
 
-    LaunchedEffect(restoreFocusToken, restoreEpisodeId, restoreTargetRequester, dedupedEpisodes) {
+    LaunchedEffect(restoreFocusToken, restoreEpisodeId, dedupedEpisodes) {
         if (restoreFocusToken <= 0 || restoreEpisodeId.isNullOrBlank()) return@LaunchedEffect
         if (dedupedEpisodes.none { it.id == restoreEpisodeId }) {
+            if (dedupedEpisodes.isEmpty()) return@LaunchedEffect
             delay(EPISODE_RESTORE_FALLBACK_MS)
-            onRestoreFocusHandled()
+            if (dedupedEpisodes.none { it.id == restoreEpisodeId }) {
+                onRestoreFocusHandled()
+            }
             return@LaunchedEffect
         }
         val index = dedupedEpisodes.indexOfFirst { it.id == restoreEpisodeId }
@@ -374,13 +378,15 @@ fun EpisodesRow(
             val offsetPx = with(density) { (cardMetrics.cardWidth * 2f / 3f - cardMetrics.itemSpacing).roundToPx() }
             lazyListState.scrollToItem(index, scrollOffset = -offsetPx)
         }
-        val focusRequested = restoreTargetRequester?.requestFocusAfterFrames(frames = 1) == true
-        if (!focusRequested) {
-            onRestoreFocusHandled()
-            return@LaunchedEffect
+        repeat(EPISODE_RESTORE_FOCUS_ATTEMPTS) {
+            val requester = episodeFocusRequesters[restoreEpisodeId]
+            if (requester != null && requester.requestFocusAfterFrames(frames = 1)) {
+                delay(EPISODE_RESTORE_FALLBACK_MS)
+                onRestoreFocusHandled()
+                return@LaunchedEffect
+            }
+            withFrameNanos { }
         }
-        delay(EPISODE_RESTORE_FALLBACK_MS)
-        onRestoreFocusHandled()
     }
 
     LaunchedEffect(scrollToEpisodeId, dedupedEpisodes) {

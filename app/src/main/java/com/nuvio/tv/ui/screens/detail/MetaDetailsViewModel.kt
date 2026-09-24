@@ -1960,24 +1960,30 @@ class MetaDetailsViewModel @Inject constructor(
             )
         }
 
-        if (latestProgress?.season != null && latestProgress.episode != null) {
-            val season = latestProgress.season
-            val episode = latestProgress.episode
+        val anchoredProgress = resolveNextToWatchLatestProgress(
+            latestProgress = latestProgress,
+            progressEntries = fallbackProgressMap.values,
+            isResumable = ::shouldResumeProgress
+        )
+
+        if (anchoredProgress?.season != null && anchoredProgress.episode != null) {
+            val season = anchoredProgress.season
+            val episode = anchoredProgress.episode
             val matchedIndex = episodes.indexOfFirst { it.season == season && it.episode == episode }
 
-            if (shouldResumeProgress(latestProgress)) {
+            if (shouldResumeProgress(anchoredProgress)) {
                 val matchedEpisode = if (matchedIndex >= 0) episodes[matchedIndex] else null
                 return NextToWatch(
-                    watchProgress = latestProgress,
+                    watchProgress = anchoredProgress,
                     isResume = true,
-                    nextVideoId = matchedEpisode?.id ?: latestProgress.videoId,
+                    nextVideoId = matchedEpisode?.id ?: anchoredProgress.videoId,
                     nextSeason = season,
                     nextEpisode = episode,
                     displayText = localizedContext.getString(R.string.detail_btn_resume_episode, season, episode)
                 )
             }
 
-            if (latestProgress.isCompleted() && matchedIndex >= 0) {
+            if (anchoredProgress.isCompleted() && matchedIndex >= 0) {
                 if (isRewatchMode) {
                     // In rewatch mode, simply take the next episode regardless of watched state
                     val next = episodes.getOrNull(matchedIndex + 1)

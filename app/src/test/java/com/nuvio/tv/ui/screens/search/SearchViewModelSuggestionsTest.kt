@@ -584,7 +584,8 @@ class SearchViewModelSuggestionsTest {
             skip: Int,
             skipStep: Int,
             extraArgs: Map<String, String>,
-            supportsSkip: Boolean
+            supportsSkip: Boolean,
+            posterScreen: com.nuvio.tv.core.poster.CustomPosterScreen
         ): Flow<NetworkResult<CatalogRow>> = flow {
             emit(NetworkResult.Loading)
             if (catalogId in slowCatalogs) delay(100)

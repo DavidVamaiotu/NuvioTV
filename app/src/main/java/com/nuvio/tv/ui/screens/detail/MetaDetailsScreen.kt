@@ -270,6 +270,20 @@ internal sealed class ReturnFocusStep {
     data object Idle : ReturnFocusStep()
 }
 
+internal fun resolveImmediateNextEpisodeId(
+    allVideos: List<Video>,
+    fromEpisodeId: String?,
+    nextVideoId: String?
+): String? {
+    if (fromEpisodeId == null || nextVideoId == null || fromEpisodeId == nextVideoId) return null
+    val ordered = allVideos
+        .filter { it.season != null && it.episode != null }
+        .sortedWith(compareBy({ it.season }, { it.episode }))
+    val index = ordered.indexOfFirst { it.id == fromEpisodeId }
+    if (index < 0 || index + 1 >= ordered.size) return null
+    return ordered[index + 1].id.takeIf { it == nextVideoId }
+}
+
 internal fun resolveReturnFocusStep(
     playedSeason: Int?,
     playedEpisode: Int?,
@@ -283,30 +297,58 @@ internal fun resolveReturnFocusStep(
     alreadyRestoredId: String?,
     hasWaitedForSeasonAdvance: Boolean
 ): ReturnFocusStep {
-    val waitingForAdvance = shouldWaitForReturnFocusSeasonAdvance(
-        playedSeason = playedSeason,
-        playedEpisode = playedEpisode,
-        nextSeason = nextSeason,
+    val advancedNextId = resolveImmediateNextEpisodeId(
         allVideos = allVideos,
-        availableSeasons = availableSeasons
+        fromEpisodeId = requestedEpisodeId,
+        nextVideoId = nextVideoId
     )
-    if (waitingForAdvance && !hasWaitedForSeasonAdvance) {
+    val focusEpisodeId = advancedNextId ?: requestedEpisodeId
+    val focusVideo = focusEpisodeId?.let { id -> allVideos.firstOrNull { it.id == id } }
+    val focusSeason = focusVideo?.season ?: playedSeason
+    val focusEpisode = focusVideo?.episode ?: playedEpisode
+
+    val waitingForAdvance = advancedNextId == null &&
+        shouldWaitForReturnFocusSeasonAdvance(
+            playedSeason = playedSeason,
+            playedEpisode = playedEpisode,
+            nextSeason = nextSeason,
+            allVideos = allVideos,
+            availableSeasons = availableSeasons
+        )
+    val bingeAheadOfProgress = nextSeason != null &&
+        playedSeason != null &&
+        nextSeason < playedSeason
+    if (waitingForAdvance && !hasWaitedForSeasonAdvance && !bingeAheadOfProgress) {
         return ReturnFocusStep.WaitForSeasonAdvance
     }
 
-    val seasonToShow = resolveReturnFocusSeason(
-        playedSeason = playedSeason,
-        selectedSeason = selectedSeason,
-        nextSeason = nextSeason,
-        availableSeasons = availableSeasons,
-        hasWaitedForSeasonAdvance = hasWaitedForSeasonAdvance
-    )
+    val exitIsFinale = isLastEpisodeOfSeason(allVideos, focusSeason, focusEpisode)
+    val seasonToShow = when {
+        advancedNextId != null ->
+            focusSeason?.takeIf { it in availableSeasons }
+        requestedEpisodeId != null && !exitIsFinale ->
+            playedSeason?.takeIf { it in availableSeasons }
+                ?: resolveReturnFocusSeason(
+                    playedSeason = playedSeason,
+                    selectedSeason = selectedSeason,
+                    nextSeason = nextSeason,
+                    availableSeasons = availableSeasons,
+                    hasWaitedForSeasonAdvance = hasWaitedForSeasonAdvance
+                )
+        else -> resolveReturnFocusSeason(
+            playedSeason = playedSeason,
+            selectedSeason = selectedSeason,
+            nextSeason = nextSeason,
+            availableSeasons = availableSeasons,
+            hasWaitedForSeasonAdvance = hasWaitedForSeasonAdvance
+        )
+    }
     if (seasonToShow != null && seasonToShow != selectedSeason) {
         return ReturnFocusStep.SelectSeason(seasonToShow)
     }
 
     val restoreEpisodeId = resolveVisibleEpisodeRestoreId(
-        requestedId = requestedEpisodeId,
+        requestedId = focusEpisodeId,
         episodesForSeason = episodesForSeason,
         nextVideoId = nextVideoId
     ) ?: return ReturnFocusStep.Idle
@@ -317,7 +359,7 @@ internal fun resolveReturnFocusStep(
 
     return ReturnFocusStep.RestoreEpisode(
         episodeId = restoreEpisodeId,
-        consumeRequest = !waitingForAdvance
+        consumeRequest = !waitingForAdvance || bingeAheadOfProgress
     )
 }
 
@@ -1649,7 +1691,8 @@ private fun MetaDetailsContent(
         nextToWatch?.nextSeason,
         nextToWatch?.nextVideoId,
         episodesForSeason.size,
-        episodesForSeason.firstOrNull()?.id
+        episodesForSeason.firstOrNull()?.id,
+        meta.videos.size
     ) {
         if (!isSeries) {
             return@LaunchedEffect
@@ -1663,7 +1706,11 @@ private fun MetaDetailsContent(
             request = request
         )
         if (targetEpisode == null) {
-            onDetailReturnEpisodeFocusConsumed()
+            initialHeroFocusRequested = true
+            return@LaunchedEffect
+        }
+        if (episodesForSeason.isEmpty()) {
+            initialHeroFocusRequested = true
             return@LaunchedEffect
         }
 
@@ -2053,12 +2100,16 @@ private fun MetaDetailsContent(
         pendingRestoreType,
         pendingRestoreEpisodeId,
         initialHeroFocusRequested,
-        isTrailerPlaying
+        isTrailerPlaying,
+        detailReturnEpisodeFocusRequest?.season,
+        detailReturnEpisodeFocusRequest?.episode
     ) {
         if (
             !initialHeroFocusRequested &&
             pendingRestoreType == null &&
             pendingRestoreEpisodeId == null &&
+            detailReturnEpisodeFocusRequest?.season == null &&
+            detailReturnEpisodeFocusRequest?.episode == null &&
             !isTrailerPlaying
         ) {
             repeat(3) {
