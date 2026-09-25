@@ -127,6 +127,9 @@ jobs:
           autosync_decl = '''val autoSyncFork = parseBooleanProperty(
               resolveProperty(devProperties, localProperties, "AUTOSYNC_FORK", "false")
           )
+          // Nuvio RS: releases also ship a universal "bridge" APK under the pre-rename id, so installs
+          // from before the rename update in place and then hand their settings to Nuvio RS.
+          val reshapedLegacyBridge = providers.gradleProperty("nuvio.reshaped.legacyBridge").orNull.toBoolean()
           '''
           if "val autoSyncFork = parseBooleanProperty(" not in text:
               if text.count(insertion_marker) != 1:
@@ -134,7 +137,7 @@ jobs:
               text = text.replace(insertion_marker, autosync_decl + insertion_marker, 1)
 
           upstream_app_id = '        applicationId = "com.nuvio.tv"'
-          autosync_app_id = '        applicationId = if (autoSyncFork) "com.nuviodebug.com" else "com.nuvio.tv"'
+          autosync_app_id = '        applicationId = if (autoSyncFork) (if (reshapedLegacyBridge) "com.nuviodebug.com" else "com.nuvioreshaped.tv") else "com.nuvio.tv"'
           if autosync_app_id not in text:
               if text.count(upstream_app_id) != 1:
                   raise SystemExit("AutoSync Gradle applicationId marker changed upstream")
@@ -171,6 +174,15 @@ jobs:
               if text.count(upstream_updater) != 1:
                   raise SystemExit("AutoSync Gradle updater markers changed upstream")
               text = text.replace(upstream_updater, autosync_updater, 1)
+
+          reshaped_names = '''
+          // Nuvio RS: the "Nuvio RS" app name for every locale; the legacy bridge keeps the old name.
+          if (autoSyncFork && !reshapedLegacyBridge) {
+              android.sourceSets.getByName("full").res.srcDir("src/reshaped/res")
+          }
+          '''
+          if 'srcDir("src/reshaped/res")' not in text:
+              text = text.rstrip("\n") + "\n" + reshaped_names
 
           path.write_text(text)
           PY
@@ -343,6 +355,18 @@ jobs:
             echo "::warning::TRAKT_CLIENT_ID or TRAKT_CLIENT_SECRET secret is not set; Trakt login is disabled in this build"
           fi
 
+      - name: Add MDBList client ID
+        if: steps.upstream.outputs.should_release == 'true'
+        env:
+          MDBLIST_CLIENT_ID: ${{ secrets.MDBLIST_CLIENT_ID }}
+        run: |
+          # MDBList sign-in and tracking stay unavailable in builds without the secret.
+          if [[ -n "$MDBLIST_CLIENT_ID" ]]; then
+            printf '\nMDBLIST_CLIENT_ID=%s\n' "$MDBLIST_CLIENT_ID" >> local.properties
+          else
+            echo "::warning::MDBLIST_CLIENT_ID secret is not set; MDBList sign-in is disabled in this build"
+          fi
+
       - name: Configure persistent signing
         if: steps.upstream.outputs.should_release == 'true'
         env:
@@ -403,24 +427,14 @@ jobs:
 
           grep -nE 'version(Code|Name)[[:space:]]*=' app/build.gradle.kts | head -n 2
 
-      - name: Test updater and build AutoSync APK
-        if: steps.upstream.outputs.should_release == 'true'
-        run: ./gradlew :app:testFullReleaseUnitTest --tests 'com.nuvio.tv.updater.*' :app:assembleFullRelease --build-cache --stacktrace
-
-      - name: Prepare APKs
+      - name: Test updater and build Nuvio RS and bridge APKs
         if: steps.upstream.outputs.should_release == 'true'
         env:
           AUTOSYNC_TAG: ${{ steps.version.outputs.tag }}
         run: |
           set -euo pipefail
-          SOURCE_DIR="app/build/outputs/apk/full/release"
-
-          for ABI in universal arm64-v8a armeabi-v7a x86_64 x86; do
-            SOURCE="$SOURCE_DIR/app-full-${ABI}-release.apk"
-            TARGET="NuvioTV-AutoSync-${AUTOSYNC_TAG}-${ABI}.apk"
-            test -f "$SOURCE"
-            cp "$SOURCE" "$TARGET"
-          done
+          ./gradlew :app:testFullReleaseUnitTest --tests 'com.nuvio.tv.updater.*' --build-cache --stacktrace
+          .github/scripts/reshaped-tv-apks.sh build "$AUTOSYNC_TAG"
 
       - name: Verify in-place update compatibility
         if: steps.upstream.outputs.should_release == 'true'
@@ -428,62 +442,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           AUTOSYNC_TAG: ${{ steps.version.outputs.tag }}
           PREVIOUS_TAG: ${{ steps.version.outputs.previous_tag }}
-        run: |
-          set -euo pipefail
-
-          NEW_APK="NuvioTV-AutoSync-${AUTOSYNC_TAG}-arm64-v8a.apk"
-          AAPT="$(find "$ANDROID_HOME/build-tools" -type f -name aapt | sort -V | tail -n 1)"
-          APKSIGNER="$(find "$ANDROID_HOME/build-tools" -type f -name apksigner | sort -V | tail -n 1)"
-          test -x "$AAPT"
-          test -x "$APKSIGNER"
-
-          read_badging() {
-            "$AAPT" dump badging "$1" | head -n 1
-          }
-
-          NEW_BADGING="$(read_badging "$NEW_APK")"
-          NEW_PACKAGE="$(printf '%s\n' "$NEW_BADGING" | sed -n "s/^package: name='\([^']*\)'.*/\1/p")"
-          NEW_VERSION="$(printf '%s\n' "$NEW_BADGING" | sed -n "s/.*versionCode='\([^']*\)'.*/\1/p")"
-          echo "New APK identity: package=$NEW_PACKAGE versionCode=$NEW_VERSION"
-          test "$NEW_PACKAGE" = "com.nuviodebug.com"
-
-          if [[ -n "$PREVIOUS_TAG" ]]; then
-            mkdir -p previous
-            gh release download "$PREVIOUS_TAG" --repo "$GITHUB_REPOSITORY" --pattern '*arm64-v8a.apk' --dir previous
-            PREVIOUS_APK="$(find previous -maxdepth 1 -type f -name '*.apk' | head -n 1)"
-            test -n "$PREVIOUS_APK"
-
-            OLD_BADGING="$(read_badging "$PREVIOUS_APK")"
-            OLD_PACKAGE="$(printf '%s\n' "$OLD_BADGING" | sed -n "s/^package: name='\([^']*\)'.*/\1/p")"
-            OLD_VERSION="$(printf '%s\n' "$OLD_BADGING" | sed -n "s/.*versionCode='\([^']*\)'.*/\1/p")"
-            echo "Previous APK identity: package=$OLD_PACKAGE versionCode=$OLD_VERSION"
-
-            read_cert_digest() {
-              local apk="$1"
-              "$APKSIGNER" verify --print-certs "$apk" 2>&1 |
-                sed -nE 's/.*certificate SHA-256 digest:[[:space:]]*([^[:space:]]+).*/\1/p' |
-                head -n 1
-            }
-
-            NEW_CERT="$(read_cert_digest "$NEW_APK")"
-            OLD_CERT="$(read_cert_digest "$PREVIOUS_APK")"
-
-            if [[ -z "$NEW_CERT" || -z "$OLD_CERT" ]]; then
-              echo "Could not read APK signing certificate digest." >&2
-              echo "New APK certificate output:" >&2
-              "$APKSIGNER" verify --print-certs "$NEW_APK" >&2 || true
-              echo "Previous APK certificate output:" >&2
-              "$APKSIGNER" verify --print-certs "$PREVIOUS_APK" >&2 || true
-              exit 1
-            fi
-
-            echo "Signing certificate unchanged: $([[ "$OLD_CERT" = "$NEW_CERT" ]] && echo yes || echo no)"
-            test "$OLD_PACKAGE" = "$NEW_PACKAGE"
-            test "$OLD_CERT" = "$NEW_CERT"
-            (( NEW_VERSION > OLD_VERSION ))
-          fi
-
-          echo "Verified update identity: package=$NEW_PACKAGE versionCode=$NEW_VERSION"
+        run: .github/scripts/reshaped-tv-apks.sh verify "$AUTOSYNC_TAG" "$PREVIOUS_TAG"
 
       - name: Commit canonical release anchor
         if: steps.upstream.outputs.should_release == 'true'
@@ -519,21 +478,11 @@ jobs:
           PRERELEASE: ${{ steps.upstream.outputs.prerelease }}
         run: |
           set -euo pipefail
-          APK_UNIVERSAL="NuvioTV-AutoSync-${AUTOSYNC_TAG}-universal.apk"
-          APK_ARM64="NuvioTV-AutoSync-${AUTOSYNC_TAG}-arm64-v8a.apk"
-          APK_V7A="NuvioTV-AutoSync-${AUTOSYNC_TAG}-armeabi-v7a.apk"
-          APK_X86_64="NuvioTV-AutoSync-${AUTOSYNC_TAG}-x86_64.apk"
-          APK_X86="NuvioTV-AutoSync-${AUTOSYNC_TAG}-x86.apk"
-
-          # Keep universal first for compatibility with older clients that may
-          # simply use the first APK. ABI-aware clients select the exact match.
+          # The bridge goes first for older clients that may simply use the first APK.
+          mapfile -t APKS < <(.github/scripts/reshaped-tv-apks.sh list "$AUTOSYNC_TAG")
           ARGS=(
             "$AUTOSYNC_TAG"
-            "$APK_UNIVERSAL"
-            "$APK_ARM64"
-            "$APK_V7A"
-            "$APK_X86_64"
-            "$APK_X86"
+            "${APKS[@]}"
             --repo "$GITHUB_REPOSITORY"
             --target "$(git rev-parse HEAD)"
             --title "$AUTOSYNC_TAG"

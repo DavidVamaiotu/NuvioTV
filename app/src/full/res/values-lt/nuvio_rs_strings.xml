@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Generated: Nuvio RS migration prompts. -->
+<resources>
+    <string name="nuvio_rs_moved_title">Nuvio dabar vadinasi Nuvio RS</string>
+    <string name="nuvio_rs_bridge_install_message">Ši programa tęsiama kaip Nuvio RS, kuri įdiegiama šalia oficialios Nuvio. Įdiekite Nuvio RS, kad ir toliau gautumėte naujinius. Nustatymai perkeliami automatiškai.</string>
+    <string name="nuvio_rs_bridge_installed_message">Nuvio RS įdiegta. Atidarykite ją, kad perkeltumėte nustatymus, tada pašalinkite šią seną programą.</string>
+    <string name="nuvio_rs_install">Įdiegti Nuvio RS</string>
+    <string name="nuvio_rs_downloading" formatted="true">Atsisiunčiama… %1$d%%</string>
+    <string name="nuvio_rs_download_failed">Nepavyko atsisiųsti Nuvio RS. Bandykite vėliau.</string>
+    <string name="nuvio_rs_allow_installs">Leiskite diegti iš šios programos, tada dar kartą paspauskite „Įdiegti Nuvio RS“.</string>
+    <string name="nuvio_rs_open">Atidaryti Nuvio RS</string>
+    <string name="nuvio_rs_uninstall_old">Pašalinti seną programą</string>
+    <string name="nuvio_rs_later">Vėliau</string>
+    <string name="nuvio_rs_imported_title">Nustatymai perkelti</string>
+    <string name="nuvio_rs_imported_message">Nustatymai perkelti iš senos Nuvio programos, kurią dabar galite pašalinti. MDBList ir Simkl reikia prijungti iš naujo.</string>
+    <string name="nuvio_rs_keep">Palikti</string>
+    <string name="nuvio_rs_pending_title">Perkelkite nustatymus</string>
+    <string name="nuvio_rs_pending_message">Norėdami perkelti nustatymus, atidarykite seną Nuvio programą, įdiekite naujausią jos naujinį ir grįžkite čia.</string>
+    <string name="nuvio_rs_ready_message">Senos Nuvio programos nustatymai paruošti. Nuvio RS bus paleista iš naujo, kad juos pritaikytų vietoj dabartinių nustatymų.</string>
+    <string name="nuvio_rs_restart">Paleisti iš naujo</string>
+    <string name="nuvio_rs_open_old">Atidaryti seną programą</string>
+    <string name="nuvio_rs_start_fresh">Pradėti iš naujo</string>
+</resources>

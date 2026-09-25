@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Generated: Nuvio RS migration prompts. -->
+<resources>
+    <string name="nuvio_rs_moved_title">Nuvio тепер називається Nuvio RS</string>
+    <string name="nuvio_rs_bridge_install_message">Цей застосунок продовжує роботу як Nuvio RS, який встановлюється поруч з офіційним Nuvio. Встановіть Nuvio RS, щоб і надалі отримувати оновлення. Налаштування перенесуться автоматично.</string>
+    <string name="nuvio_rs_bridge_installed_message">Nuvio RS встановлено. Відкрийте його, щоб перенести налаштування, а потім видаліть цей старий застосунок.</string>
+    <string name="nuvio_rs_install">Встановити Nuvio RS</string>
+    <string name="nuvio_rs_downloading" formatted="true">Завантаження… %1$d%%</string>
+    <string name="nuvio_rs_download_failed">Не вдалося завантажити Nuvio RS. Спробуйте пізніше.</string>
+    <string name="nuvio_rs_allow_installs">Дозвольте встановлення з цього застосунку та знову натисніть «Встановити Nuvio RS».</string>
+    <string name="nuvio_rs_open">Відкрити Nuvio RS</string>
+    <string name="nuvio_rs_uninstall_old">Видалити старий застосунок</string>
+    <string name="nuvio_rs_later">Пізніше</string>
+    <string name="nuvio_rs_imported_title">Налаштування перенесено</string>
+    <string name="nuvio_rs_imported_message">Налаштування перенесено зі старого застосунку Nuvio, його можна видалити. MDBList і Simkl потрібно підключити знову.</string>
+    <string name="nuvio_rs_keep">Залишити</string>
+    <string name="nuvio_rs_pending_title">Перенесення налаштувань</string>
+    <string name="nuvio_rs_pending_message">Щоб перенести налаштування, відкрийте старий застосунок Nuvio і встановіть його останнє оновлення, потім поверніться сюди.</string>
+    <string name="nuvio_rs_ready_message">Налаштування зі старого застосунку Nuvio готові. Nuvio RS перезапуститься, щоб застосувати їх замість поточних налаштувань.</string>
+    <string name="nuvio_rs_restart">Перезапустити</string>
+    <string name="nuvio_rs_open_old">Відкрити старий застосунок</string>
+    <string name="nuvio_rs_start_fresh">Почати з нуля</string>
+</resources>
