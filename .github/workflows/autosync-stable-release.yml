@@ -231,7 +231,7 @@ jobs:
           path.write_text(text)
           PY
 
-      - name: Test AutoSync and updater, then build Nuvio RS and bridge APKs
+      - name: Test AutoSync and updater, then build Nuvio RS APKs
         env:
           AUTOSYNC_TAG: ${{ steps.version.outputs.tag }}
         run: |
@@ -252,7 +252,6 @@ jobs:
           AUTOSYNC_TAG: ${{ steps.version.outputs.tag }}
         run: |
           set -euo pipefail
-          # The bridge goes first for older clients that may simply use the first APK.
           mapfile -t APKS < <(.github/scripts/reshaped-tv-apks.sh list "$AUTOSYNC_TAG")
           gh release create "$AUTOSYNC_TAG" "${APKS[@]}" \
             --repo "$GITHUB_REPOSITORY" \

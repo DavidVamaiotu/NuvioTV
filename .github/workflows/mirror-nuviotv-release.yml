@@ -360,7 +360,7 @@ jobs:
 
           grep -nE 'version(Code|Name)[[:space:]]*=' app/build.gradle.kts | head -n 2
 
-      - name: Test updater and build Nuvio RS and bridge APKs
+      - name: Test updater and build Nuvio RS APKs
         if: steps.upstream.outputs.should_release == 'true'
         env:
           AUTOSYNC_TAG: ${{ steps.version.outputs.tag }}
@@ -411,7 +411,6 @@ jobs:
           PRERELEASE: ${{ steps.upstream.outputs.prerelease }}
         run: |
           set -euo pipefail
-          # The bridge goes first for older clients that may simply use the first APK.
           mapfile -t APKS < <(.github/scripts/reshaped-tv-apks.sh list "$AUTOSYNC_TAG")
           ARGS=(
             "$AUTOSYNC_TAG"

@@ -1,21 +1,18 @@
 #!/usr/bin/env bash
 # Release APKs since the Nuvio RS rename. Every release carries:
 #   NuvioRS-TV-<tag>-{arm64,arm32,x64,x32,any}.apk   Nuvio RS (com.nuvioreshaped.tv)
-#   NuvioTV-AutoSync-<tag>-bridge-universal.apk      legacy bridge (com.nuviodebug.com)
-# The Nuvio RS names avoid ABI names and "universal"/"all", so updaters from before the rename
-# pick the bridge, which updates old installs in place and hands their settings to Nuvio RS.
+# The legacy bridge APK (com.nuviodebug.com), which moved installs from before the rename to
+# Nuvio RS, is no longer built.
 #
-#   reshaped-tv-apks.sh build <tag>                  build both variants into release-apks/
-#   reshaped-tv-apks.sh verify <tag> [previous-tag]  check package ids, signatures and versions
-#   reshaped-tv-apks.sh list <tag>                   print the asset paths, bridge first
+#   reshaped-tv-apks.sh build <tag>                  build the APKs into release-apks/
+#   reshaped-tv-apks.sh verify <tag> [previous-tag]  check package id, signature and version
+#   reshaped-tv-apks.sh list <tag>                   print the asset paths
 set -euo pipefail
 
 OUT="release-apks"
 SOURCE_DIR="app/build/outputs/apk/full/release"
 RESHAPED_PACKAGE="com.nuvioreshaped.tv"
-LEGACY_PACKAGE="com.nuviodebug.com"
 
-bridge_apk() { echo "$OUT/NuvioTV-AutoSync-$1-bridge-universal.apk"; }
 reshaped_apk() { echo "$OUT/NuvioRS-TV-$1-$2.apk"; }
 
 build() {
@@ -29,13 +26,6 @@ build() {
     test -f "$SOURCE_DIR/app-full-${abi}-release.apk"
     mv "$SOURCE_DIR/app-full-${abi}-release.apk" "$(reshaped_apk "$tag" "$alias")"
   done
-
-  rm -rf "$SOURCE_DIR"
-  # A fresh daemon: two R8 runs in one daemon can exhaust the runner's memory.
-  ./gradlew --stop
-  ./gradlew :app:assembleFullRelease -Pnuvio.reshaped.legacyBridge=true --build-cache --stacktrace
-  test -f "$SOURCE_DIR/app-full-universal-release.apk"
-  mv "$SOURCE_DIR/app-full-universal-release.apk" "$(bridge_apk "$tag")"
   ls -l "$OUT"
 }
 
@@ -85,18 +75,12 @@ check_update() {
 verify() {
   local tag="$1" previous="${2:-}"
   tools
-  local reshaped bridge
+  local reshaped
   reshaped="$(reshaped_apk "$tag" arm64)"
-  bridge="$(bridge_apk "$tag")"
   test "$(package_of "$reshaped")" = "$RESHAPED_PACKAGE"
-  test "$(package_of "$bridge")" = "$LEGACY_PACKAGE"
-  test "$(cert_of "$reshaped")" = "$(cert_of "$bridge")"
 
   if [[ -n "$previous" ]]; then
     local old
-    old="$(download_previous "$previous" previous-legacy '*bridge-universal.apk' '*arm64-v8a.apk')"
-    test -n "$old"
-    check_update "$bridge" "$old" "Legacy bridge"
     old="$(download_previous "$previous" previous-reshaped 'NuvioRS-*-arm64.apk')"
     if [[ -n "$old" ]]; then
       check_update "$reshaped" "$old" "Nuvio RS"
@@ -108,7 +92,6 @@ verify() {
 
 list() {
   local tag="$1" alias
-  bridge_apk "$tag"
   for alias in arm64 arm32 x64 x32 any; do
     reshaped_apk "$tag" "$alias"
   done
