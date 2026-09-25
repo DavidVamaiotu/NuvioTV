@@ -1,1 +1,4 @@
-- **AutoSync toasts follow the app language.** All AutoSync messages (analyzing, match found, sync applied or kept, errors) now use the language picked in Nuvio TV's settings, with translations for all 35 languages the app ships. English wording is unchanged.
+- **Nuvio AutoSync is now Nuvio RS.** New name, new logo and TV banner, and its own app ID (`com.nuvioreshaped.tv`), so it installs next to the official Nuvio TV instead of replacing it.
+- **Moving over is automatic.** Updating the old app installs a last version of it, which offers to install Nuvio RS. On first launch Nuvio RS brings over your settings, addons, profiles, library and watch progress, then offers to uninstall the old app. MDBList and Simkl need to be connected again.
+- **Which APK to download:** `NuvioRS-TV-…-arm32.apk` for most TVs and sticks, `arm64` for newer ones, `any` if unsure. The `…-bridge-universal.apk` is only for updating the old app.
+- **MDBList sign-in works.** Fork builds were missing an MDBList client ID, so sign-in reported missing credentials.
