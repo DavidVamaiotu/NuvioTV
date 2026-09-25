@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- AutoSync toast messages. Generated; keep keys in sync across locales. -->
+<resources>
+    <string name="autosync_toast_analyzing">Auto Sync • Analiziranje…</string>
+    <string name="autosync_toast_unsupported_renderer">Auto Sync • Nepodprt upodabljalnik podnapisov</string>
+    <string name="autosync_toast_load_failed">Auto Sync • Podnapisov ni bilo mogoče naložiti</string>
+    <string name="autosync_toast_apply_failed">Auto Sync • Ujemanje najdeno, vendar sinhronizacije ni bilo mogoče uporabiti</string>
+    <string name="autosync_toast_sync_failed">Auto Sync • Sinhronizacija ni uspela • ohranjen izvirni čas</string>
+    <string name="autosync_toast_analyze_failed">Auto Sync • Podnapisov ni bilo mogoče analizirati</string>
+    <string name="autosync_toast_no_embedded_subtitles">Auto Sync • Vdelani podnapisi niso bili najdeni</string>
+    <string name="autosync_toast_no_reference">Auto Sync • Ni uporabne referenčne sledi</string>
+    <string name="autosync_toast_match_excellent">Auto Sync • Odlično ujemanje (%1$d%%)</string>
+    <string name="autosync_toast_match_strong">Auto Sync • Močno ujemanje (%1$d%%)</string>
+    <string name="autosync_toast_match_possible">Auto Sync • Možno ujemanje (%1$d%%)</string>
+    <string name="autosync_toast_match_weak">Auto Sync • Šibko ujemanje (%1$d%%)</string>
+    <string name="autosync_toast_result_within_tolerance">sinhronizirano (znotraj tolerance %1$d ms)</string>
+    <string name="autosync_toast_result_localized_ignored">razlike lokalizacije prezrte</string>
+    <string name="autosync_toast_result_replaced">podnapisi zamenjani</string>
+    <string name="autosync_toast_result_drift_corrected">zamik popravljen</string>
+    <string name="autosync_toast_result_in_sync">že sinhronizirano</string>
+    <string name="autosync_toast_result_kept">ohranjen izvirni čas</string>
+</resources>
