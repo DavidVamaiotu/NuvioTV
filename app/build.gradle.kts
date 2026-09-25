@@ -108,6 +108,8 @@ android {
 
     defaultConfig {
         applicationId = if (autoSyncFork) (if (reshapedLegacyBridge) "com.nuviodebug.com" else "com.nuvioreshaped.tv") else "com.nuvio.tv"
+        // Seekr seek-preview key, supplied to CI builds from the SEEKR_API_KEY secret.
+        buildConfigField("String", "SEEKR_API_KEY", buildConfigString(localProperties.getProperty("SEEKR_API_KEY", "").trim()))
         minSdk = 24
         targetSdk = 36
         versionCode = 1062
@@ -456,6 +458,9 @@ dependencies {
     implementation(libs.okhttp.logging)
     implementation(libs.moshi)
     ksp(libs.moshi.codegen)
+
+    // Seek-preview thumbnails (seekr.tv)
+    implementation("tv.seekr:seekr-compose:0.2.0")
 
     // Coroutines
     implementation(libs.coroutines.core)

@@ -40,6 +40,7 @@ import com.nuvio.tv.data.repository.TraktRelatedService
 import com.nuvio.tv.data.trailer.TrailerService
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
+import com.nuvio.tv.ui.screens.player.seekpreview.SeekPreviewState
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.map
@@ -164,6 +165,9 @@ class PlayerViewModel @Inject constructor(
         scope = viewModelScope
     )
 
+    /** Seek-preview thumbnails (Seekr); see the seekpreview package. */
+    val seekPreview = SeekPreviewState(viewModelScope, controller)
+
     val uiState: StateFlow<PlayerUiState>
         get() = controller.uiState
 
@@ -250,7 +254,7 @@ class PlayerViewModel @Inject constructor(
     }
 
     fun onEvent(event: PlayerEvent) {
-        controller.onEvent(event)
+        controller.onEvent(seekPreview.intercept(event))
     }
 
     fun bindExoSubtitleView(subtitleView: androidx.media3.ui.SubtitleView?) {
