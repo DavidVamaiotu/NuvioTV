@@ -71,6 +71,9 @@ internal object AutomaticSubtitleSync {
     private const val MIN_INDEXED_REFERENCE_SPAN_MS = 45_000L
 
     private const val LIVE_REFERENCE_WAIT_MS = 12_000L
+    private const val SPARSE_LIVE_REFERENCE_WAIT_MS = 60_000L
+    private const val MIN_SPARSE_LIVE_REFERENCE_CUES = 8
+    private const val MIN_SPARSE_LIVE_REFERENCE_SPAN_MS = 30_000L
     private const val LIVE_REFERENCE_POLL_MS = 500L
     private const val MIN_LIVE_REFERENCE_CUES = 20
     private const val MIN_LIVE_REFERENCE_SPAN_RATIO = 0.80
@@ -581,15 +584,18 @@ internal object AutomaticSubtitleSync {
             }
 
             if (referenceTracks.isEmpty()) {
+                val useSparseLiveReference =
+                    indexedTimeline?.source == "matroska-cues-no-subtitle-entries"
                 val liveSelection = awaitNearCompleteLiveReferences(
                     sourceKey = sourceKey,
                     preferredLanguage = preferredLanguage,
                     target = seedTarget,
-                    waitMs = if (indexedTimeline?.skipLiveFallbackWait == true) {
-                        0L
-                    } else {
-                        LIVE_REFERENCE_WAIT_MS
+                    waitMs = when {
+                        useSparseLiveReference -> SPARSE_LIVE_REFERENCE_WAIT_MS
+                        indexedTimeline?.skipLiveFallbackWait == true -> 0L
+                        else -> LIVE_REFERENCE_WAIT_MS
                     },
+                    allowSparseLiveReference = useSparseLiveReference,
                 )
                 referenceTracks = liveSelection.primary
                 forcedFallbackTracks = liveSelection.forcedFallback
@@ -1432,7 +1438,11 @@ internal object AutomaticSubtitleSync {
                 "cheapAffinity=${fmt(rankedReference.cheapAffinity)}"
         }
 
-        val preparedReference = preparedReferenceActivity(track, referenceActivityCache)
+        val preparedReference = if (track.sampled) {
+            null
+        } else {
+            preparedReferenceActivity(track, referenceActivityCache)
+        }
 
         val pairStarted = SystemClock.elapsedRealtime()
         val timeline = buildTimelineRetimeResult(
@@ -1934,6 +1944,7 @@ internal object AutomaticSubtitleSync {
         preferredLanguage: String?,
         target: List<SubtitleSyncCue>,
         waitMs: Long = LIVE_REFERENCE_WAIT_MS,
+        allowSparseLiveReference: Boolean = false,
     ): ReferenceSelection {
         val targetSpan = referenceSpanMs(target).coerceAtLeast(1L)
         val started = SystemClock.elapsedRealtime()
@@ -1955,6 +1966,20 @@ internal object AutomaticSubtitleSync {
             val ready = orderReferenceProfiles(
                 eligibleProfiles.filter { profile -> profile.fullDialogue },
             )
+            val sparseReady = if (allowSparseLiveReference) {
+                orderReferenceProfiles(
+                    prepared.asSequence()
+                        .filter { track ->
+                            track.cues.size >= MIN_SPARSE_LIVE_REFERENCE_CUES &&
+                                referenceSpanMs(track.cues) >= MIN_SPARSE_LIVE_REFERENCE_SPAN_MS
+                        }
+                        .map { track -> buildReferenceProfile(track.copy(sampled = true)) }
+                        .filter { profile -> profile.fullDialogue }
+                        .toList(),
+                )
+            } else {
+                emptyList()
+            }
             forcedFallback = orderReferenceProfiles(
                 eligibleProfiles.filter { profile -> isForcedReferenceTrack(profile.track) },
             )
@@ -1967,7 +1992,7 @@ internal object AutomaticSubtitleSync {
                 lastSignature = signature
                 AutoSyncDebugLog.section { "LIVE MEDIA3 REFERENCE" }
                 AutoSyncDebugLog.info {
-                    "tracks=${prepared.size} nearComplete=${ready.size} " +
+                    "tracks=${prepared.size} nearComplete=${ready.size} sparse=${sparseReady.size} " +
                         "forcedFallback=${forcedFallback.size} " +
                         "waited=${SystemClock.elapsedRealtime() - started}ms"
                 }
@@ -1979,6 +2004,17 @@ internal object AutomaticSubtitleSync {
                     forcedFallback = forcedFallback.map {
                         it.track.copy(cues = it.track.cues.toList())
                     },
+                )
+            }
+
+            if (sparseReady.isNotEmpty()) {
+                AutoSyncDebugLog.info {
+                    "using Media3 live cue sample tracks=${sparseReady.size} " +
+                        "counts=${sparseReady.joinToString(",") { "${it.track.key}:${it.cueCount}" }} " +
+                        "waited=${SystemClock.elapsedRealtime() - started}ms"
+                }
+                return ReferenceSelection(
+                    primary = sparseReady.map { it.track.copy(cues = it.track.cues.toList()) },
                 )
             }
 
@@ -1996,7 +2032,13 @@ internal object AutomaticSubtitleSync {
             )
         }
 
-        if (waitMs == 0L) {
+        if (allowSparseLiveReference) {
+            AutoSyncDebugLog.warn {
+                "Media3 live sample unavailable after ${waitMs}ms; " +
+                    "need at least $MIN_SPARSE_LIVE_REFERENCE_CUES dialogue cues " +
+                    "spanning ${MIN_SPARSE_LIVE_REFERENCE_SPAN_MS}ms"
+            }
+        } else if (waitMs == 0L) {
             AutoSyncDebugLog.info {
                 "Media3 live wait skipped because Matroska Cues has no subtitle entries"
             }
@@ -2071,7 +2113,7 @@ internal object AutomaticSubtitleSync {
                 spanMs >= MIN_FULL_DIALOGUE_CLASSIFICATION_SPAN_MS &&
                 !isCommentaryReferenceTrack(track) &&
                 !isDescriptiveReferenceTrack(track) &&
-                density >= MIN_FULL_DIALOGUE_DENSITY_PER_MINUTE &&
+                (track.sampled || density >= MIN_FULL_DIALOGUE_DENSITY_PER_MINUTE) &&
                 (textCueCount < 4 || dialogueRatio >= MIN_FULL_DIALOGUE_TEXT_RATIO)
         val fullDialogue =
             fullDialogueCandidate && !isForcedReferenceTrack(track)
@@ -2287,6 +2329,23 @@ internal object AutomaticSubtitleSync {
         cancellationCheck: (() -> Unit)? = null,
         timingObserver: ((AutoSyncRetimePhaseTimings) -> Unit)? = null,
     ): AutoSyncTimelineRetimeResult? {
+        if (track.sampled) {
+            val alignment = AutoSyncSampledReferenceAligner.findDelay(
+                reference = track.cues,
+                target = target,
+            ) ?: return null
+            AutoSyncDebugLog.info {
+                "sampled reference alignment track=${track.key} " +
+                    "offset=${"%.1f".format(alignment.offsetMs)}ms " +
+                    "score=${fmt(alignment.score)} margin=${fmt(alignment.margin)} " +
+                    "segments=${alignment.segmentsPassed}"
+            }
+            return AutoSyncTimelineRetimer.buildDelayOnlyTimeline(target, alignment).copy(
+                alignmentSource = "sampled-delay",
+                referenceCoverage = alignment.score,
+            )
+        }
+
         val relaxDelayMargin = AutoSyncTimelineRetimer.shouldRelaxDelayOnlyMargin(
             sdhReference = isSdhReferenceTrack(track),
             referenceSize = track.cues.size,
@@ -2461,6 +2520,7 @@ internal data class ReferenceTrack(
     val roleFlags: Int = 0,
     val generation: Long = 0L,
     val estimatedEndStartsMs: Set<Long> = emptySet(),
+    val sampled: Boolean = false,
 )
 
 /** Thread-safe accumulation of the embedded text timing already passing through Media3. */
