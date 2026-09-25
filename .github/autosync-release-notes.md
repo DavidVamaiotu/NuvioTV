@@ -1,4 +1,2 @@
-- **Nuvio AutoSync is now Nuvio RS.** New name, new logo and TV banner, and its own app ID (`com.nuvioreshaped.tv`), so it installs next to the official Nuvio TV instead of replacing it.
-- **Moving over is automatic.** Updating the old app installs a last version of it, which offers to install Nuvio RS. On first launch Nuvio RS brings over your settings, addons, profiles, library and watch progress, then offers to uninstall the old app. MDBList and Simkl need to be connected again.
-- **Which APK to download:** `NuvioRS-TV-…-arm32.apk` for most TVs and sticks, `arm64` for newer ones, `any` if unsure. The `…-bridge-universal.apk` is only for updating the old app.
-- **MDBList sign-in works.** Fork builds were missing an MDBList client ID, so sign-in reported missing credentials.
+- **Fewer install warnings.** Nuvio RS no longer asks for permission to uninstall other apps, which made Google Play Protect more likely to flag it. "Uninstall old app" now opens the old app's page in Android settings, where you tap Uninstall.
+- **Still on the old app?** Update it once more from its update banner: that installs the last "old" version, which moves you to Nuvio RS and brings your settings along.
