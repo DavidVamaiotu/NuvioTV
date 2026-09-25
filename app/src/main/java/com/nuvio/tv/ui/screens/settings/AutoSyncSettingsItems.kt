@@ -9,18 +9,22 @@ import androidx.compose.material.icons.filled.Timer
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.platform.LocalContext
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.lazy.LazyListScope
+import androidx.compose.ui.Modifier
 import com.nuvio.tv.ui.screens.player.autosync.AutoSyncPreferences
 
 /** AutoSync-owned settings rows; keeps fork-specific state out of NuvioTV PlayerSettingsDataStore. */
 internal fun LazyListScope.autoSyncSettingsItems(
     enabled: Boolean,
+    firstItemModifier: Modifier = Modifier,
 ) {
     item(key = "subtitle_auto_sync") {
         val context = LocalContext.current
         AutoSyncPreferences.ensureLoaded(context)
         val checked by AutoSyncPreferences.enabled.collectAsStateWithLifecycle()
 
+        Box(modifier = firstItemModifier) {
         ToggleSettingsItem(
             icon = Icons.Default.Sync,
             title = "Auto Sync Subtitle",
@@ -29,6 +33,7 @@ internal fun LazyListScope.autoSyncSettingsItems(
             onCheckedChange = { AutoSyncPreferences.setEnabled(context, it) },
             enabled = enabled,
         )
+        }
     }
 
     item(key = "subtitle_auto_sync_tolerance") {
