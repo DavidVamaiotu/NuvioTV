@@ -37,6 +37,7 @@ import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.PlayArrow
 import androidx.compose.material.icons.filled.BugReport
+import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.Build
 import androidx.compose.material.icons.filled.Explore
 import androidx.compose.material.icons.filled.GridView
@@ -107,6 +108,7 @@ internal enum class SettingsCategory {
     CONTENT_DISCOVERY,
     INTEGRATION,
     PLAYBACK,
+    NUVIO_RESHAPED, // Nuvio RS hook
     ADVANCED,
     TRACKING,
     ABOUT,
@@ -221,6 +223,13 @@ private fun rememberSettingsSectionSpecs() = listOf(
         subtitle = stringResource(R.string.settings_playback_subtitle),
         destination = SettingsSectionDestination.Inline
     ),
+    SettingsSectionSpec( // Nuvio RS hook
+        category = SettingsCategory.NUVIO_RESHAPED,
+        title = stringResource(R.string.settings_nuvio_reshaped),
+        icon = Icons.Default.AutoAwesome,
+        subtitle = stringResource(R.string.settings_nuvio_reshaped_description),
+        destination = SettingsSectionDestination.Inline
+    ),
     SettingsSectionSpec(
         category = SettingsCategory.TRACKING,
         title = stringResource(R.string.settings_tracking_title),
@@ -320,6 +329,7 @@ fun SettingsScreen(
             SettingsCategory.CONTENT_DISCOVERY to FocusRequester(),
             SettingsCategory.INTEGRATION to FocusRequester(),
             SettingsCategory.PLAYBACK to FocusRequester(),
+            SettingsCategory.NUVIO_RESHAPED to FocusRequester(), // Nuvio RS hook
             SettingsCategory.ADVANCED to FocusRequester(),
             SettingsCategory.ABOUT to FocusRequester(),
             SettingsCategory.ACCOUNT to FocusRequester()
@@ -1037,6 +1047,9 @@ private fun SettingsDetailPane(
             }
         )
         SettingsCategory.DEBUG -> DebugSettingsContent()
+        SettingsCategory.NUVIO_RESHAPED -> NuvioReshapedSettingsContent( // Nuvio RS hook
+            initialFocusRequester = if (allowDetailAutofocus) contentFocusRequesters[SettingsCategory.NUVIO_RESHAPED] else null
+        )
         SettingsCategory.TRACKING -> Unit
     }
 }

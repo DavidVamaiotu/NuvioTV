@@ -122,8 +122,6 @@ internal fun LazyListScope.subtitleSettingsItems(
         )
     }
 
-    autoSyncSettingsItems(enabled = enabled) // AutoSync hook
-
     item(key = "subtitle_use_forced_subtitles") {
         ToggleSettingsItem(
             icon = Icons.Default.ClosedCaption,
