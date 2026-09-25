@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Subtitle AutoSync. Keep keys in sync with values/autosync_strings.xml. -->
+<resources>
+    <string name="autosync_setting_title">Synkroniser undertekster automatisk</string>
+    <string name="autosync_setting_description">Tilpasser den valgte tilføjelsesundertekst til timingen af de undertekster, der er indlejret i videoen.</string>
+    <string name="autosync_tolerance_title">Auto Sync-tolerance</string>
+    <string name="autosync_tolerance_description">Bevar den oprindelige timing, når den nødvendige korrektion er så lille eller mindre.</string>
+    <string name="autosync_tolerance_off">Fra</string>
+    <string name="autosync_thorough_title">Grundig Auto Sync-søgning</string>
+    <string name="autosync_thorough_description">Bliv ved med at sammenligne andre undertekster og indlejrede spor for et tættere match før synkronisering. Når den er slået fra, bruges det første stærke match hurtigere. Kun sikre match anvendes.</string>
+    <string name="autosync_debug_logs_title">Fejlfindingslogge for Auto Sync</string>
+    <string name="autosync_debug_logs_description">Gem en detaljeret Auto Sync-timingrapport og kopiér den til udklipsholderen til rapportering af svære undertekstsager.</string>
+    <string name="autosync_toast_analyzing">Auto Sync • Analyserer…</string>
+    <string name="autosync_toast_synced">Auto Sync • Undertekster synkroniseret</string>
+    <string name="autosync_toast_synced_replaced">Auto Sync • Skiftet til en undertekst, der passer bedre</string>
+    <string name="autosync_toast_in_sync">Auto Sync • Underteksterne er allerede synkroniseret</string>
+    <string name="autosync_toast_failed">Auto Sync • Synkronisering mislykkedes • undertekstens timing er uændret</string>
+    <string name="autosync_toast_failed_no_reference">Auto Sync • Ingen indlejrede undertekster at sammenligne med • undertekstens timing er uændret</string>
+    <string name="autosync_toast_failed_unsupported">Auto Sync • Undertekstformatet understøttes ikke • undertekstens timing er uændret</string>
+    <string name="autosync_toast_failed_audio_fallback">Auto Sync • Intet match fundet • synkroniserer til lyden i stedet…</string>
+    <string name="autosync_label_synced">Automatisk synkroniseret</string>
+</resources>

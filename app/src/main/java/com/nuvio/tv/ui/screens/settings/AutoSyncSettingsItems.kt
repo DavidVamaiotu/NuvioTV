@@ -11,6 +11,8 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.stringResource
+import com.nuvio.tv.R
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.lazy.LazyListScope
@@ -20,7 +22,7 @@ import com.nuvio.tv.ui.screens.player.audiosync.AudioSyncFallback
 import com.nuvio.tv.ui.screens.player.audiosync.AudioSyncSettings
 import com.nuvio.tv.ui.screens.player.audiosync.SubtitleSyncStatus
 
-/** AutoSync-owned settings rows; keeps fork-specific state out of NuvioTV PlayerSettingsDataStore. */
+/** AutoSync-owned settings rows; keeps AutoSync state out of NuvioTV PlayerSettingsDataStore. */
 internal fun LazyListScope.autoSyncSettingsItems(
     enabled: Boolean,
     firstItemModifier: Modifier = Modifier,
@@ -35,8 +37,8 @@ internal fun LazyListScope.autoSyncSettingsItems(
         Box(modifier = firstItemModifier) {
         ToggleSettingsItem(
             icon = Icons.Default.Sync,
-            title = "Auto Sync Subtitle",
-            subtitle = "Automatically sync the preferred add-on subtitle against embedded subtitle timing when playback starts.",
+            title = stringResource(R.string.autosync_setting_title),
+            subtitle = stringResource(R.string.autosync_setting_description),
             isChecked = checked,
             onCheckedChange = { on ->
                 AutoSyncPreferences.setEnabled(context, on)
@@ -59,11 +61,15 @@ internal fun LazyListScope.autoSyncSettingsItems(
 
         SliderSettingsItem(
             icon = Icons.Default.Timer,
-            title = "Auto Sync Tolerance",
-            subtitle = "Keep the original subtitle timing when the sync would move it by no more than this.",
+            title = stringResource(R.string.autosync_tolerance_title),
+            subtitle = stringResource(R.string.autosync_tolerance_description),
             values = AutoSyncPreferences.syncToleranceOptionsMs,
             selected = toleranceMs,
-            valueText = if (toleranceMs > 0) "$toleranceMs ms" else "Off",
+            valueText = if (toleranceMs > 0) {
+                stringResource(R.string.autosync_tolerance_value, toleranceMs)
+            } else {
+                stringResource(R.string.autosync_tolerance_off)
+            },
             onValueChange = { AutoSyncPreferences.setSyncToleranceMs(context, it) },
             enabled = enabled,
         )
@@ -76,8 +82,8 @@ internal fun LazyListScope.autoSyncSettingsItems(
 
         ToggleSettingsItem(
             icon = Icons.Default.BugReport,
-            title = "Debug Logs for Auto Sync",
-            subtitle = "Save a verbose AutoSync timing report and mirror it to Logcat for difficult subtitle cases.",
+            title = stringResource(R.string.autosync_debug_logs_title),
+            subtitle = stringResource(R.string.autosync_debug_logs_description),
             isChecked = checked,
             onCheckedChange = { AutoSyncPreferences.setDebugLogsEnabled(context, it) },
             enabled = enabled,
@@ -91,8 +97,8 @@ internal fun LazyListScope.autoSyncSettingsItems(
 
         ToggleSettingsItem(
             icon = Icons.Default.Sync,
-            title = "Aggressive Auto Sync",
-            subtitle = "Search more same-language subtitle candidates before giving up. Disable for the faster passive V2 policy.",
+            title = stringResource(R.string.autosync_thorough_title),
+            subtitle = stringResource(R.string.autosync_thorough_description),
             isChecked = checked,
             onCheckedChange = { AutoSyncPreferences.setAggressiveMode(context, it) },
             enabled = enabled,

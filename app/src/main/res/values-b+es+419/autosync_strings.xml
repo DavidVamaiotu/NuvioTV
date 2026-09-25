@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Subtitle AutoSync. Keep keys in sync with values/autosync_strings.xml. -->
+<resources>
+    <string name="autosync_setting_title">Sincronizar subtítulos automáticamente</string>
+    <string name="autosync_setting_description">Ajusta el subtítulo del complemento seleccionado a los tiempos de los subtítulos incluidos en el video.</string>
+    <string name="autosync_tolerance_title">Tolerancia de Auto Sync</string>
+    <string name="autosync_tolerance_description">Conserva los tiempos originales cuando la corrección necesaria es igual o menor que este valor.</string>
+    <string name="autosync_tolerance_off">Desactivado</string>
+    <string name="autosync_thorough_title">Búsqueda exhaustiva de Auto Sync</string>
+    <string name="autosync_thorough_description">Sigue comparando otros subtítulos y pistas incluidas para encontrar una coincidencia más precisa antes de sincronizar. Si está desactivado, se usa antes la primera coincidencia sólida. Solo se aplican coincidencias confiables.</string>
+    <string name="autosync_debug_logs_title">Registros de depuración de Auto Sync</string>
+    <string name="autosync_debug_logs_description">Guarda un informe detallado de tiempos de Auto Sync y lo copia al portapapeles para reportar casos difíciles de subtítulos.</string>
+    <string name="autosync_toast_analyzing">Auto Sync • Analizando…</string>
+    <string name="autosync_toast_synced">Auto Sync • Subtítulos sincronizados</string>
+    <string name="autosync_toast_synced_replaced">Auto Sync • Se cambió a un subtítulo que coincide mejor</string>
+    <string name="autosync_toast_in_sync">Auto Sync • Los subtítulos ya estaban sincronizados</string>
+    <string name="autosync_toast_failed">Auto Sync • Falló la sincronización • no se cambiaron los tiempos del subtítulo</string>
+    <string name="autosync_toast_failed_no_reference">Auto Sync • No hay subtítulos incluidos para comparar • no se cambiaron los tiempos del subtítulo</string>
+    <string name="autosync_toast_failed_unsupported">Auto Sync • Formato de subtítulo no compatible • no se cambiaron los tiempos del subtítulo</string>
+    <string name="autosync_toast_failed_audio_fallback">Auto Sync • No se encontró coincidencia • sincronizando con el audio…</string>
+    <string name="autosync_label_synced">Sincronizado automáticamente</string>
+</resources>

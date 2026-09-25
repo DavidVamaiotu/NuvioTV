@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Subtitle AutoSync. Keep keys in sync with values/autosync_strings.xml. -->
+<resources>
+    <string name="autosync_setting_title">Automatiškai sinchronizuoti subtitrus</string>
+    <string name="autosync_setting_description">Pritaiko pasirinktus priedo subtitrus prie į vaizdo įrašą įterptų subtitrų laiko.</string>
+    <string name="autosync_tolerance_title">Auto Sync tolerancija</string>
+    <string name="autosync_tolerance_description">Palikti pradinį laiką, kai reikalinga pataisa yra tokia ar mažesnė.</string>
+    <string name="autosync_tolerance_off">Išjungta</string>
+    <string name="autosync_thorough_title">Išsami Auto Sync paieška</string>
+    <string name="autosync_thorough_description">Prieš sinchronizuodama toliau lygina kitus subtitrus ir įterptus takelius, kad rastų tikslesnį atitikmenį. Išjungus, pirmas stiprus atitikmuo naudojamas anksčiau. Taikomi tik patikimi atitikmenys.</string>
+    <string name="autosync_debug_logs_title">Auto Sync derinimo žurnalai</string>
+    <string name="autosync_debug_logs_description">Išsaugoti išsamią Auto Sync laiko ataskaitą ir nukopijuoti ją į iškarpinę, kad galėtumėte pranešti apie sudėtingus subtitrų atvejus.</string>
+    <string name="autosync_toast_analyzing">Auto Sync • Analizuojama…</string>
+    <string name="autosync_toast_synced">Auto Sync • Subtitrai sinchronizuoti</string>
+    <string name="autosync_toast_synced_replaced">Auto Sync • Perjungta į geriau atitinkančius subtitrus</string>
+    <string name="autosync_toast_in_sync">Auto Sync • Subtitrai jau sinchronizuoti</string>
+    <string name="autosync_toast_failed">Auto Sync • Sinchronizuoti nepavyko • subtitrų laikas nepakeistas</string>
+    <string name="autosync_toast_failed_no_reference">Auto Sync • Nėra įterptų subtitrų palyginimui • subtitrų laikas nepakeistas</string>
+    <string name="autosync_toast_failed_unsupported">Auto Sync • Subtitrų formatas nepalaikomas • subtitrų laikas nepakeistas</string>
+    <string name="autosync_toast_failed_audio_fallback">Auto Sync • Atitikmens nerasta • sinchronizuojama pagal garsą…</string>
+    <string name="autosync_label_synced">Sinchronizuota automatiškai</string>
+</resources>

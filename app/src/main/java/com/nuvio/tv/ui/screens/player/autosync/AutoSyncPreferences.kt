@@ -29,6 +29,7 @@ internal object AutoSyncPreferences {
     private val _debugLogsEnabled = MutableStateFlow(false)
     val debugLogsEnabled: StateFlow<Boolean> = _debugLogsEnabled.asStateFlow()
 
+    /** Thorough search: stop only on a stronger match; the applied match is gated the same. */
     private val _aggressiveMode = MutableStateFlow(true)
     val aggressiveMode: StateFlow<Boolean> = _aggressiveMode.asStateFlow()
 

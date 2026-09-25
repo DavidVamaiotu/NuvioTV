@@ -13,10 +13,9 @@ import com.nuvio.tv.ui.screens.player.autosync.AutoSyncAnalysisOutcome
 import com.nuvio.tv.ui.screens.player.autosync.AutoSyncCandidateScope
 import com.nuvio.tv.ui.screens.player.autosync.AutoSyncDebugLog
 import com.nuvio.tv.ui.screens.player.autosync.AutoSyncExtractorsFactory
-import com.nuvio.tv.ui.screens.player.autosync.AutoSyncMatchAssessment
-import com.nuvio.tv.ui.screens.player.autosync.AutoSyncMatchStrength
 import com.nuvio.tv.ui.screens.player.autosync.AutoSyncPreferences
 import com.nuvio.tv.ui.screens.player.autosync.AutoSyncSubtitleCandidate
+import com.nuvio.tv.ui.screens.player.autosync.AutoSyncSyncedSubtitle
 import com.nuvio.tv.ui.screens.player.autosync.AutomaticSubtitleSync
 import com.nuvio.tv.ui.screens.player.autosync.EmbeddedSubtitleTimelineLoader
 import com.nuvio.tv.ui.screens.player.autosync.applyAutoSyncSidecarTimeline
@@ -28,8 +27,6 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.flow.update
-import kotlin.math.abs
-import kotlin.math.roundToInt
 
 /** Thin TV adapter around the feature-owned Mobile AutoSync V2 pipeline. */
 private val autoSyncToastHandler = Handler(Looper.getMainLooper())
@@ -105,7 +102,7 @@ internal fun PlayerRuntimeController.maybeRunAutomaticSubtitleSync(
     showAutoSyncToast(context.getString(R.string.autosync_toast_analyzing))
 
     if (!canAttachAddonSubtitleViaSidecar(selectedSubtitle)) {
-        showAutoSyncToast(context.getString(R.string.autosync_toast_unsupported_renderer))
+        showAutoSyncToast(context.getString(R.string.autosync_toast_failed_unsupported))
         return
     }
 
@@ -129,7 +126,7 @@ internal fun PlayerRuntimeController.maybeRunAutomaticSubtitleSync(
         },
     )
     if (!started) {
-        showAutoSyncToast(context.getString(R.string.autosync_toast_load_failed))
+        showAutoSyncToast(context.getString(R.string.autosync_toast_failed))
         return
     }
 
@@ -162,7 +159,6 @@ internal fun PlayerRuntimeController.maybeRunAutomaticSubtitleSync(
                     "lang=${selectedSubtitle.lang} candidates=${candidatesAtStart.size}",
             )
             var analysisOutcome: AutoSyncAnalysisOutcome? = null
-            var rejectedAssessment: AutoSyncMatchAssessment? = null
             val resolved = AutomaticSubtitleSync.findTimelineRetime(
                 sourceKey = sourceUrlAtStart,
                 sourceHeaders = sourceHeadersAtStart,
@@ -198,7 +194,6 @@ internal fun PlayerRuntimeController.maybeRunAutomaticSubtitleSync(
                 },
                 onReferenceReady = {},
                 onAnalysisOutcome = { outcome -> analysisOutcome = outcome },
-                onMatchAssessment = { assessment -> rejectedAssessment = assessment },
             )
 
             if (resolved == null) {
@@ -207,20 +202,23 @@ internal fun PlayerRuntimeController.maybeRunAutomaticSubtitleSync(
                 }
                 // Original timing kept: sync it to the audio instead, when AutoSync found nothing
                 // to align to or only a weak match (not when the subtitle itself failed to load).
-                if (analysisOutcome != AutoSyncAnalysisOutcome.SUBTITLE_UNAVAILABLE && currentStreamUrl == sourceUrlAtStart) {
-                    audioFallback?.takeOver(selectedUrl)
-                } else {
-                    audioFallback?.disarm()
-                }
+                val audioTakesOver =
+                    if (analysisOutcome != AutoSyncAnalysisOutcome.SUBTITLE_UNAVAILABLE && currentStreamUrl == sourceUrlAtStart) {
+                        audioFallback?.takeOver(selectedUrl) == true
+                    } else {
+                        audioFallback?.disarm()
+                        false
+                    }
                 AutoSyncDebugLog.finishAndCopy(
                     context,
                     "REJECT V2 - original subtitle timing kept",
                 )
                 showAutoSyncToast(
-                    context.buildAutoSyncFailureToast(
-                        analysisOutcome = analysisOutcome,
-                        assessment = rejectedAssessment,
-                    ),
+                    if (audioTakesOver) {
+                        context.getString(R.string.autosync_toast_failed_audio_fallback)
+                    } else {
+                        context.buildAutoSyncFailureToast(analysisOutcome)
+                    },
                 )
                 return@launch
             }
@@ -288,7 +286,7 @@ internal fun PlayerRuntimeController.maybeRunAutomaticSubtitleSync(
                     context,
                     "REJECT V2 - sidecar changed or apply failed",
                 )
-                showAutoSyncToast(context.getString(R.string.autosync_toast_apply_failed))
+                showAutoSyncToast(context.getString(R.string.autosync_toast_failed))
                 return@launch
             }
 
@@ -302,6 +300,7 @@ internal fun PlayerRuntimeController.maybeRunAutomaticSubtitleSync(
                 rememberAddonSubtitleSelection(chosenSubtitle)
             }
             setSubtitleDelayMs(targetMs = 0, showOverlay = false)
+            AutoSyncSyncedSubtitle.mark(chosenSubtitle.url)
 
             val timeline = resolved.timeline
             AutoSyncDebugLog.info {
@@ -322,13 +321,12 @@ internal fun PlayerRuntimeController.maybeRunAutomaticSubtitleSync(
                 },
             )
             showAutoSyncToast(
-                context.buildAutoSyncSuccessToast(
-                    replacedSubtitle = chosenSubtitle.url != selectedUrl,
-                    scale = timeline.alignmentScale,
-                    interceptMs = timeline.alignmentInterceptMs,
-                    assessment = resolved.assessment,
-                    localizedMismatchIgnored = timeline.localizedMismatchIgnored,
-                    withinToleranceMs = withinToleranceMs,
+                context.getString(
+                    when {
+                        chosenSubtitle.url != selectedUrl -> R.string.autosync_toast_synced_replaced
+                        withinToleranceMs != null -> R.string.autosync_toast_in_sync
+                        else -> R.string.autosync_toast_synced
+                    },
                 ),
             )
         } catch (cancel: CancellationException) {
@@ -341,70 +339,22 @@ internal fun PlayerRuntimeController.maybeRunAutomaticSubtitleSync(
             if (activeSidecarSubtitleKey == null) {
                 startSidecarAddonSubtitle(selectedSubtitle)
             }
-            showAutoSyncToast(context.getString(R.string.autosync_toast_sync_failed))
+            showAutoSyncToast(context.getString(R.string.autosync_toast_failed))
         }
     }.also { job ->
         job.invokeOnCompletion { selectedBodyDeferred.complete(null) }
     }
 }
 
-private fun Context.autoSyncToastPrefix(assessment: AutoSyncMatchAssessment): String =
+/** Why AutoSync kept the original timing, in the fewest words that still help the viewer. */
+private fun Context.buildAutoSyncFailureToast(analysisOutcome: AutoSyncAnalysisOutcome?): String =
     getString(
-        when (assessment.strength) {
-            AutoSyncMatchStrength.EXCELLENT -> R.string.autosync_toast_match_excellent
-            AutoSyncMatchStrength.STRONG -> R.string.autosync_toast_match_strong
-            AutoSyncMatchStrength.POSSIBLE -> R.string.autosync_toast_match_possible
-            AutoSyncMatchStrength.WEAK -> R.string.autosync_toast_match_weak
+        when (analysisOutcome) {
+            AutoSyncAnalysisOutcome.NO_SUBTITLE_TRACKS,
+            AutoSyncAnalysisOutcome.NO_USABLE_REFERENCE,
+            -> R.string.autosync_toast_failed_no_reference
+            AutoSyncAnalysisOutcome.SUBTITLE_UNAVAILABLE,
+            null,
+            -> R.string.autosync_toast_failed
         },
-        assessment.confidencePercent,
     )
-
-private fun Context.buildAutoSyncSuccessToast(
-    replacedSubtitle: Boolean,
-    scale: Double,
-    interceptMs: Double,
-    assessment: AutoSyncMatchAssessment,
-    localizedMismatchIgnored: Boolean,
-    withinToleranceMs: Int?,
-): String {
-    val result = when {
-        withinToleranceMs != null ->
-            getString(R.string.autosync_toast_result_within_tolerance, withinToleranceMs)
-        localizedMismatchIgnored -> getString(R.string.autosync_toast_result_localized_ignored)
-        replacedSubtitle -> getString(R.string.autosync_toast_result_replaced)
-        abs(scale - 1.0) >= 0.0005 -> getString(R.string.autosync_toast_result_drift_corrected)
-        abs(interceptMs) >= 250.0 -> formatAutoSyncOffset(interceptMs)
-        else -> getString(R.string.autosync_toast_result_in_sync)
-    }
-    return "${autoSyncToastPrefix(assessment)} • $result"
-}
-
-private fun Context.buildAutoSyncFailureToast(
-    analysisOutcome: AutoSyncAnalysisOutcome?,
-    assessment: AutoSyncMatchAssessment?,
-): String =
-    when (analysisOutcome) {
-        AutoSyncAnalysisOutcome.SUBTITLE_UNAVAILABLE ->
-            getString(R.string.autosync_toast_analyze_failed)
-        AutoSyncAnalysisOutcome.NO_SUBTITLE_TRACKS ->
-            getString(R.string.autosync_toast_no_embedded_subtitles)
-        AutoSyncAnalysisOutcome.NO_USABLE_REFERENCE ->
-            getString(R.string.autosync_toast_no_reference)
-        null -> {
-            val resolvedAssessment =
-                assessment ?: AutoSyncMatchAssessment(
-                    confidencePercent = 0,
-                    strength = AutoSyncMatchStrength.WEAK,
-                )
-            "${autoSyncToastPrefix(resolvedAssessment)} • ${getString(R.string.autosync_toast_result_kept)}"
-        }
-    }
-
-private fun formatAutoSyncOffset(offsetMs: Double): String {
-    val roundedMs = offsetMs.roundToInt()
-    if (abs(roundedMs) < 1_000) {
-        return "${if (roundedMs > 0) "+" else ""}$roundedMs ms"
-    }
-    val tenths = (roundedMs / 100.0).roundToInt()
-    return "${if (tenths > 0) "+" else ""}${tenths / 10}.${abs(tenths % 10)} s"
-}

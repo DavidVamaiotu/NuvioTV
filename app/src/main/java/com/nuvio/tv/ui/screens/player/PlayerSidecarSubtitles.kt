@@ -16,6 +16,7 @@ import androidx.media3.extractor.text.SubtitleParser
 import androidx.media3.ui.SubtitleView
 import com.nuvio.tv.R
 import com.nuvio.tv.domain.model.Subtitle
+import com.nuvio.tv.ui.screens.player.autosync.AutoSyncSyncedSubtitle
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
@@ -97,6 +98,7 @@ internal fun PlayerRuntimeController.stopSidecarAddonSubtitle(clearView: Boolean
     sidecarSubtitleJob = null
     activeSidecarSubtitleKey = null
     activeSidecarGeneration = 0L
+    AutoSyncSyncedSubtitle.clear() // AutoSync hook
     sidecarTimedCues = emptyList()
     lastSidecarCueSignature = null
     if (clearView) {
@@ -123,11 +125,12 @@ internal fun PlayerRuntimeController.startSidecarAddonSubtitle(
     sidecarSubtitleJob?.cancel()
     val generation = ++sidecarGenerationCounter
     activeSidecarGeneration = generation
+    AutoSyncSyncedSubtitle.clear() // AutoSync hook
     activeSidecarSubtitleKey = subtitleKey
     lastSidecarCueSignature = null
     sidecarTimedCues = emptyList()
     postToSubtitleView { view ->
-        view.setTag(R.id.player_view_sidecar_generation_tag, generation)
+        view.setTag(R.id.player_view_sidecar_generation_tag, subtitleKey)
         view.setCues(emptyList())
     }
     fun isCurrent() =
@@ -226,7 +229,7 @@ internal fun PlayerRuntimeController.commitPreparedSidecarSubtitle(
     sidecarTimedCues = cues
     lastSidecarCueSignature = null
     postToSubtitleView { view ->
-        view.setTag(R.id.player_view_sidecar_generation_tag, committedGeneration)
+        view.setTag(R.id.player_view_sidecar_generation_tag, newUrl)
     }
     renderSidecarCuesAtCurrentPosition()
 
@@ -270,7 +273,7 @@ internal fun PlayerRuntimeController.renderSidecarCuesAtCurrentPosition() {
         if (
             activeSidecarSubtitleKey == currentKey &&
             activeSidecarGeneration == currentGeneration &&
-            view.getTag(R.id.player_view_sidecar_generation_tag) == currentGeneration
+            view.getTag(R.id.player_view_sidecar_generation_tag) == currentKey
         ) {
             view.setCues(merged)
         }

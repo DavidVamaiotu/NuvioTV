@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Subtitle AutoSync. Keep keys in sync with values/autosync_strings.xml. -->
+<resources>
+    <string name="autosync_setting_title">Altyazıları otomatik eşitle</string>
+    <string name="autosync_setting_description">Seçilen eklenti altyazısını videoya gömülü altyazıların zamanlamasına uydurur.</string>
+    <string name="autosync_tolerance_title">Auto Sync toleransı</string>
+    <string name="autosync_tolerance_description">Gereken düzeltme bu kadar veya daha küçükse orijinal zamanlamayı korur.</string>
+    <string name="autosync_tolerance_off">Kapalı</string>
+    <string name="autosync_thorough_title">Kapsamlı Auto Sync araması</string>
+    <string name="autosync_thorough_description">Eşitlemeden önce daha yakın bir eşleşme için diğer altyazıları ve gömülü parçaları karşılaştırmaya devam eder. Kapalıyken ilk güçlü eşleşme daha erken kullanılır. Yalnızca güvenilir eşleşmeler uygulanır.</string>
+    <string name="autosync_debug_logs_title">Auto Sync hata ayıklama günlükleri</string>
+    <string name="autosync_debug_logs_description">Zor altyazı durumlarını bildirmek için ayrıntılı bir Auto Sync zamanlama raporu kaydeder ve panoya kopyalar.</string>
+    <string name="autosync_toast_analyzing">Auto Sync • Analiz ediliyor…</string>
+    <string name="autosync_toast_synced">Auto Sync • Altyazılar eşitlendi</string>
+    <string name="autosync_toast_synced_replaced">Auto Sync • Daha iyi eşleşen bir altyazıya geçildi</string>
+    <string name="autosync_toast_in_sync">Auto Sync • Altyazılar zaten eşit</string>
+    <string name="autosync_toast_failed">Auto Sync • Eşitleme başarısız • altyazı zamanlaması değişmedi</string>
+    <string name="autosync_toast_failed_no_reference">Auto Sync • Karşılaştırılacak gömülü altyazı yok • altyazı zamanlaması değişmedi</string>
+    <string name="autosync_toast_failed_unsupported">Auto Sync • Altyazı biçimi desteklenmiyor • altyazı zamanlaması değişmedi</string>
+    <string name="autosync_toast_failed_audio_fallback">Auto Sync • Eşleşme bulunamadı • bunun yerine sese göre eşitleniyor…</string>
+    <string name="autosync_label_synced">Otomatik eşitlendi</string>
+</resources>
