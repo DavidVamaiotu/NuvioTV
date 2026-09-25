@@ -1,6 +1,6 @@
 name: Trigger AutoSync TV Stable Release
 
-# Fresh stable release after test dependency fix
+# Fresh stable release: audio subtitle sync as the AutoSync fallback, no bridge APK
 
 # Trigger: rebuild stable AutoSync after dependency fix
 
