@@ -81,12 +81,6 @@ fun truthy(value: String?): Boolean {
 
 val buildingAppBundle = gradle.startParameter.taskNames.any { it.contains("bundle", ignoreCase = true) }
 val useDebugReleaseSigning = env("CI_USE_DEBUG_SIGNING").equals("true", ignoreCase = true)
-val autoSyncFork = parseBooleanProperty(
-    resolveProperty(devProperties, localProperties, "AUTOSYNC_FORK", "false")
-)
-// Nuvio RS: releases also ship a universal "bridge" APK under the pre-rename id, so installs
-// from before the rename update in place and then hand their settings to Nuvio RS.
-val reshapedLegacyBridge = providers.gradleProperty("nuvio.reshaped.legacyBridge").orNull.toBoolean()
 val useLocalFfmpegDecoder = truthy(
     providers.gradleProperty("useLocalFfmpegDecoder").orNull
         ?: env("USE_LOCAL_FFMPEG_DECODER")
@@ -107,10 +101,8 @@ android {
     ndkVersion = "29.0.14206865"
 
     defaultConfig {
-        applicationId = if (autoSyncFork) (if (reshapedLegacyBridge) "com.nuviodebug.com" else "com.nuvioreshaped.tv") else "com.nuvio.tv"
+        applicationId = "com.nuvio.tv"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
-        // Seekr seek-preview key, supplied to CI builds from the SEEKR_API_KEY secret.
-        buildConfigField("String", "SEEKR_API_KEY", buildConfigString(localProperties.getProperty("SEEKR_API_KEY", "").trim()))
         minSdk = 24
         targetSdk = 36
         versionCode = 1064
@@ -155,31 +147,8 @@ android {
         buildConfigField("String", "SENTRY_DSN", buildConfigString(sentryDsn))
 
         // In-app updater (GitHub Releases)
-        buildConfigField(
-            "String",
-            "GITHUB_OWNER",
-            buildConfigString(
-                resolveProperty(
-                    devProperties,
-                    localProperties,
-                    "NUVIO_UPDATE_GITHUB_OWNER",
-                    "NuvioMedia"
-                )
-            )
-        )
-        buildConfigField(
-            "String",
-            "GITHUB_REPO",
-            buildConfigString(
-                resolveProperty(
-                    devProperties,
-                    localProperties,
-                    "NUVIO_UPDATE_GITHUB_REPO",
-                    "NuvioTV"
-                )
-            )
-        )
-        buildConfigField("boolean", "AUTOSYNC_FORK", autoSyncFork.toString())
+        buildConfigField("String", "GITHUB_OWNER", "\"NuvioMedia\"")
+        buildConfigField("String", "GITHUB_REPO", "\"NuvioTV\"")
     }
 
     flavorDimensions += "distribution"
@@ -461,9 +430,6 @@ dependencies {
     implementation(libs.moshi)
     ksp(libs.moshi.codegen)
 
-    // Seek-preview thumbnails (seekr.tv)
-    implementation("tv.seekr:seekr-compose:0.2.0")
-
     // Coroutines
     implementation(libs.coroutines.core)
     implementation(libs.coroutines.android)
@@ -589,7 +555,4 @@ dependencies {
     debugImplementation(libs.androidx.compose.ui.test.manifest)
 }
 
-// Nuvio RS: the "Nuvio RS" app name for every locale; the legacy bridge keeps the old name.
-if (autoSyncFork && !reshapedLegacyBridge) {
-    android.sourceSets.getByName("full").res.srcDir("src/reshaped/res")
-}
+apply(from = "reshaped.gradle") // Nuvio RS hook: fork build settings

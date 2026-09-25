@@ -1,0 +1,43 @@
+// Nuvio RS / AutoSync fork build settings. Applied from the end of build.gradle.kts, so Nuvio's
+// own build file carries a single line; the values set here replace Nuvio's defaults.
+
+def readProperties = { String name ->
+    def properties = new Properties()
+    def file = rootProject.file(name)
+    if (file.exists()) file.withInputStream { properties.load(it) }
+    properties
+}
+def localProperties = readProperties("local.properties")
+def devProperties = readProperties("local.dev.properties")
+def resolveProperty = { String key, String fallback ->
+    [devProperties, localProperties].collect { it.getProperty(key)?.trim() }.find { it } ?: fallback
+}
+def buildConfigString = { String value ->
+    '"' + value.replace('\\', '\\\\').replace('"', '\\"') + '"'
+}
+
+def autoSyncFork = resolveProperty("AUTOSYNC_FORK", "false").toLowerCase() in ["1", "true", "yes", "on"]
+// Releases also ship a universal "bridge" APK under the pre-rename id, so installs from before
+// the rename update in place and then hand their settings to Nuvio RS.
+def reshapedLegacyBridge = "true".equalsIgnoreCase(providers.gradleProperty("nuvio.reshaped.legacyBridge").getOrNull())
+
+def defaults = android.defaultConfig
+if (autoSyncFork) {
+    defaults.applicationId = reshapedLegacyBridge ? "com.nuviodebug.com" : "com.nuvioreshaped.tv"
+}
+// Seekr seek-preview key, supplied to CI builds from the SEEKR_API_KEY secret.
+defaults.buildConfigField("String", "SEEKR_API_KEY", buildConfigString(localProperties.getProperty("SEEKR_API_KEY", "").trim()))
+// In-app updater: the fork's own GitHub releases.
+defaults.buildConfigField("String", "GITHUB_OWNER", buildConfigString(resolveProperty("NUVIO_UPDATE_GITHUB_OWNER", "NuvioMedia")))
+defaults.buildConfigField("String", "GITHUB_REPO", buildConfigString(resolveProperty("NUVIO_UPDATE_GITHUB_REPO", "NuvioTV")))
+defaults.buildConfigField("boolean", "AUTOSYNC_FORK", autoSyncFork.toString())
+
+// The "Nuvio RS" app name for every locale; the legacy bridge keeps the old name.
+if (autoSyncFork && !reshapedLegacyBridge) {
+    android.sourceSets.getByName("full").res.srcDir("src/reshaped/res")
+}
+
+dependencies {
+    // Seek-preview thumbnails (seekr.tv)
+    implementation "tv.seekr:seekr-compose:0.2.0"
+}
