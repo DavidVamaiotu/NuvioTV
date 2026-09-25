@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="settings_seek_preview_section">Pregledi pri premotavanju</string>
+    <string name="settings_seekr_api_key">Seekr API ključ</string>
+    <string name="settings_seekr_api_key_builtin">Ugrađeni ključ (zajednički, 40 naslova dnevno)</string>
+    <string name="settings_seekr_api_key_custom">Vlastiti ključ</string>
+    <string name="settings_seekr_api_key_description">Sličice pregleda dolaze sa seekr.tv. Ugrađeni ključ dijele svi i dozvoljava samo 40 različitih naslova dnevno, pa pregledi mogu prestati raditi. Nabavite besplatan ključ na seekr.tv i zalijepite ga ovdje. Ostavite prazno za ugrađeni ključ.</string>
+    <string name="settings_seekr_api_key_invalid">Seekr nije prihvatio ovaj ključ.</string>
+</resources>

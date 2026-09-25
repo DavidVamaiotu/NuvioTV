@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="settings_seek_preview_section">拖动预览</string>
+    <string name="settings_seekr_api_key">Seekr API 密钥</string>
+    <string name="settings_seekr_api_key_builtin">内置密钥（共享，每天 40 部）</string>
+    <string name="settings_seekr_api_key_custom">你自己的密钥</string>
+    <string name="settings_seekr_api_key_description">拖动进度时的预览图来自 seekr.tv。内置密钥由所有人共享，每天只允许 40 部不同的影片，因此预览可能会失效。请在 seekr.tv 获取免费密钥并粘贴到这里。留空则使用内置密钥。</string>
+    <string name="settings_seekr_api_key_invalid">Seekr 不接受此密钥。</string>
+</resources>

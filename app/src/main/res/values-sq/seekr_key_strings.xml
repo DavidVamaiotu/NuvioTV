@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="settings_seek_preview_section">Parapamje gjatë kërkimit</string>
+    <string name="settings_seekr_api_key">Çelësi API i Seekr</string>
+    <string name="settings_seekr_api_key_builtin">Çelës i integruar (i përbashkët, 40 tituj në ditë)</string>
+    <string name="settings_seekr_api_key_custom">Çelësi yt</string>
+    <string name="settings_seekr_api_key_description">Figurat e parapamjes vijnë nga seekr.tv. Çelësi i integruar ndahet nga të gjithë dhe lejon vetëm 40 tituj të ndryshëm në ditë, prandaj parapamjet mund të ndalojnë së punuari. Merr një çelës falas në seekr.tv dhe ngjite këtu. Lëre bosh për të përdorur çelësin e integruar.</string>
+    <string name="settings_seekr_api_key_invalid">Seekr nuk e pranoi këtë çelës.</string>
+</resources>

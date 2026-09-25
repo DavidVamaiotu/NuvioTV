@@ -377,6 +377,8 @@ internal fun PlaybackSettingsSections(
                 )
             }
 
+            seekrKeySettingsItems(onFocused = { focusedSection = PlaybackSection.GENERAL }) // Seekr hook
+
             item(key = "general_skip_intro") {
                 ToggleSettingsItem(
                     icon = Icons.Default.History,

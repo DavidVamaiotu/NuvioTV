@@ -1,6 +1,5 @@
 package com.nuvio.tv.ui.screens.player.seekpreview
 
-import com.nuvio.tv.BuildConfig
 import com.nuvio.tv.ui.screens.player.PlayerEvent
 import com.nuvio.tv.ui.screens.player.PlayerRuntimeController
 import com.nuvio.tv.ui.screens.player.currentPlaybackDurationMs
@@ -25,8 +24,8 @@ import tv.seekr.previews.android.SeekrTrack
  * frame on screen, and the manual Preview Sync correction.
  *
  * Holds what the seek-preview fork (AKhalil609/NuvioTV) keeps in PlayerUiState, PlayerViewModel
- * and the runtime controller's events, so upstream player state stays untouched. The key comes
- * from BuildConfig.SEEKR_API_KEY (the SEEKR_API_KEY secret); without one, nothing loads.
+ * and the runtime controller's events, so upstream player state stays untouched. The key is the
+ * user's own (SeekrKeyPreferences), else BuildConfig.SEEKR_API_KEY; without one, nothing loads.
  */
 class SeekPreviewState internal constructor(
     scope: CoroutineScope,
@@ -64,7 +63,7 @@ class SeekPreviewState internal constructor(
                 setOffset(0)
                 _previewCue.value = null
                 _showSyncOverlay.value = false
-                val apiKey = BuildConfig.SEEKR_API_KEY
+                val apiKey = SeekrKeyPreferences.effectiveKey(controller.context) // Seekr hook: user key, else built-in
                 if (apiKey.isBlank() || durationMs <= 0L) return@mapLatest null
                 val content = seekrContentFor(
                     contentId = controller.contentId,

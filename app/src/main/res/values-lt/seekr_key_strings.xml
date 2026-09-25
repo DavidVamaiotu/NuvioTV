@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="settings_seek_preview_section">Peržiūros prasukant</string>
+    <string name="settings_seekr_api_key">Seekr API raktas</string>
+    <string name="settings_seekr_api_key_builtin">Įtaisytas raktas (bendras, 40 pavadinimų per dieną)</string>
+    <string name="settings_seekr_api_key_custom">Savas raktas</string>
+    <string name="settings_seekr_api_key_description">Peržiūros vaizdai gaunami iš seekr.tv. Įtaisytu raktu naudojasi visi, ir jis leidžia tik 40 skirtingų pavadinimų per dieną, todėl peržiūros gali nustoti veikti. Gaukite nemokamą raktą seekr.tv ir įklijuokite jį čia. Palikite tuščią, kad būtų naudojamas įtaisytas raktas.</string>
+    <string name="settings_seekr_api_key_invalid">Seekr nepriėmė šio rakto.</string>
+</resources>
