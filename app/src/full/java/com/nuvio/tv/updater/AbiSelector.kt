@@ -15,6 +15,9 @@ internal object AbiSelector {
     fun chooseBestApkAsset(assets: List<GitHubAssetDto>): GitHubAssetDto? {
         val apkAssets = assets.filter { it.name.endsWith(".apk", ignoreCase = true) }
         if (apkAssets.isEmpty()) return null
+        // Nuvio RS hook: releases also carry the legacy bridge APK, which this build must skip.
+        ReshapedApkAssets.choose(apkAssets.map { it.name }, Build.SUPPORTED_ABIS?.toList().orEmpty())
+            ?.let { name -> return apkAssets.first { it.name == name } }
         if (apkAssets.size == 1) return apkAssets.first()
 
         val supported = Build.SUPPORTED_ABIS?.toList().orEmpty()

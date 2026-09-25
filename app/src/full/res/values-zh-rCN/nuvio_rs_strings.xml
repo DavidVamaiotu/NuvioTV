@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Generated: Nuvio RS migration prompts. -->
+<resources>
+    <string name="nuvio_rs_moved_title">Nuvio 现已更名为 Nuvio RS</string>
+    <string name="nuvio_rs_bridge_install_message">此应用将以 Nuvio RS 的形式继续，可与官方 Nuvio 同时安装。请安装 Nuvio RS 以继续获得更新。你的设置会自动迁移。</string>
+    <string name="nuvio_rs_bridge_installed_message">Nuvio RS 已安装。打开它以迁移你的设置，然后卸载此旧应用。</string>
+    <string name="nuvio_rs_install">安装 Nuvio RS</string>
+    <string name="nuvio_rs_downloading" formatted="true">正在下载… %1$d%%</string>
+    <string name="nuvio_rs_download_failed">无法下载 Nuvio RS。请稍后重试。</string>
+    <string name="nuvio_rs_allow_installs">请允许此应用安装应用，然后再次点按“安装 Nuvio RS”。</string>
+    <string name="nuvio_rs_open">打开 Nuvio RS</string>
+    <string name="nuvio_rs_uninstall_old">卸载旧应用</string>
+    <string name="nuvio_rs_later">稍后</string>
+    <string name="nuvio_rs_imported_title">设置已迁移</string>
+    <string name="nuvio_rs_imported_message">你的设置已从旧版 Nuvio 应用迁移，现在可以卸载它。MDBList 和 Simkl 需要重新连接。</string>
+    <string name="nuvio_rs_keep">保留</string>
+    <string name="nuvio_rs_pending_title">迁移你的设置</string>
+    <string name="nuvio_rs_pending_message">要迁移设置，请打开旧版 Nuvio 应用并安装其最新更新，然后返回这里。</string>
+    <string name="nuvio_rs_ready_message">旧版 Nuvio 应用中的设置已准备就绪。Nuvio RS 将重新启动，以用它们替换当前设置。</string>
+    <string name="nuvio_rs_restart">重新启动</string>
+    <string name="nuvio_rs_open_old">打开旧应用</string>
+    <string name="nuvio_rs_start_fresh">重新开始</string>
+</resources>
