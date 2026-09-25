@@ -1,6 +1,6 @@
 name: AutoSync TV Release
 
-# Release trigger: publish current subtitle-autosync revision
+# Release trigger: audio subtitle sync as the AutoSync fallback
 
 
 on:
