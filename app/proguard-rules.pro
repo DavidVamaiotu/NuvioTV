@@ -147,6 +147,3 @@
 
 -dontwarn java.beans.ConstructorProperties
 -dontwarn java.beans.Transient
-# sherpa-onnx (audio subtitle sync speech recognition): JNI reads config fields by name.
--keep class com.k2fsa.sherpa.onnx.** { *; }
--keep interface com.k2fsa.sherpa.onnx.** { *; }

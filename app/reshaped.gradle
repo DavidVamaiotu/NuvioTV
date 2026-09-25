@@ -37,7 +37,29 @@ if (autoSyncFork && !reshapedLegacyBridge) {
     android.sourceSets.getByName("full").res.srcDir("src/reshaped/res")
 }
 
+// On-device speech recognition for the audio subtitle sync fallback (sherpa-onnx, Apache-2.0).
+// The AAR is ~50 MB, so it is downloaded once into libs/ (git-ignored) and verified instead of
+// committed.
+def sherpaOnnxVersion = "1.13.8"
+def sherpaOnnxSha256 = "633c24321e06b1fe79feafa03ea16cbc0f8a286641e2da3559bac91bdb13bd96"
+def sherpaOnnxAar = project.file("libs/sherpa-onnx-${sherpaOnnxVersion}.aar")
+def sha256 = { File file -> java.security.MessageDigest.getInstance("SHA-256").digest(file.bytes).encodeHex().toString() }
+if (!(sherpaOnnxAar.isFile() && sha256(sherpaOnnxAar) == sherpaOnnxSha256)) {
+    def url = "https://github.com/k2-fsa/sherpa-onnx/releases/download/v${sherpaOnnxVersion}/sherpa-onnx-${sherpaOnnxVersion}.aar"
+    logger.lifecycle("Downloading $url")
+    def partial = new File(sherpaOnnxAar.path + ".part")
+    new URL(url).withInputStream { input -> partial.withOutputStream { it << input } }
+    if (sha256(partial) != sherpaOnnxSha256) throw new GradleException("Checksum mismatch for $url")
+    partial.renameTo(sherpaOnnxAar)
+}
+// sherpa-onnx's JNI library only needs libonnxruntime; its C/C++ API libraries are unused.
+android.packaging.jniLibs.excludes.addAll(["lib/*/libsherpa-onnx-c-api.so", "lib/*/libsherpa-onnx-cxx-api.so"])
+android.buildTypes.configureEach { it.proguardFile("reshaped-proguard-rules.pro") }
+
 dependencies {
     // Seek-preview thumbnails (seekr.tv)
     implementation "tv.seekr:seekr-compose:0.2.0"
+    implementation files(sherpaOnnxAar)
+    // The audio sync tests use kotlin.test.
+    testImplementation "org.jetbrains.kotlin:kotlin-test:${kotlin.coreLibrariesVersion}"
 }
