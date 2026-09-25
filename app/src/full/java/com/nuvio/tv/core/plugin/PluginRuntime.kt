@@ -290,8 +290,11 @@ class PluginRuntime @Inject constructor() {
                         val headersJson = args.getOrNull(2)?.toString() ?: "{}"
                         val bodyKind = args.getOrNull(3)?.toString() ?: "none"
                         val body = args.getOrNull(4)?.toString() ?: ""
+                        val followRedirects = args.getOrNull(5)?.toString()?.let {
+                            !it.equals("false", ignoreCase = true)
+                        } ?: true
                         try {
-                            performNativeFetch(url, method, headersJson, bodyKind, body, inFlightCalls)
+                            performNativeFetch(url, method, headersJson, bodyKind, body, followRedirects, inFlightCalls)
                         } catch (t: Throwable) {
                             Log.e(TAG, "Async fetch bridge error for $method $url: ${t.message}")
                             gson.toJson(
@@ -512,6 +515,7 @@ class PluginRuntime @Inject constructor() {
         headersJson: String,
         bodyKind: String,
         body: String,
+        followRedirects: Boolean,
         inFlightCalls: MutableSet<Call>
     ): String {
         Log.d(TAG, "Fetch: $method $url bodyKind=$bodyKind")
@@ -570,7 +574,15 @@ class PluginRuntime @Inject constructor() {
             }
 
             val request = requestBuilder.build()
-            val call = httpClient.newCall(request)
+            val client = if (followRedirects) {
+                httpClient
+            } else {
+                httpClient.newBuilder()
+                    .followRedirects(false)
+                    .followSslRedirects(false)
+                    .build()
+            }
+            val call = client.newCall(request)
             inFlightCalls.add(call)
 
             try {
@@ -756,6 +768,7 @@ class PluginRuntime @Inject constructor() {
                 var headers = options.headers || {};
                 var body = __normalize_fetch_body(options.body);
                 var signal = options.signal || null;
+                var followRedirects = options.redirect !== 'manual';
 
                 if (signal && signal.aborted) {
                     var preErr = new Error('The operation was aborted.');
@@ -768,7 +781,7 @@ class PluginRuntime @Inject constructor() {
                     headers['User-Agent'] = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36';
                 }
 
-                var result = __native_fetch(url, method, JSON.stringify(headers), body.kind, body.value);
+                var result = __native_fetch(url, method, JSON.stringify(headers), body.kind, body.value, followRedirects);
                 var parsed = JSON.parse(result);
                 var responseBytes = __fetch_base64_to_bytes(parsed.bodyBase64);
 
