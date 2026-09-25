@@ -22,6 +22,8 @@ import com.nuvio.tv.ui.screens.player.autosync.EmbeddedSubtitleTimelineLoader
 import com.nuvio.tv.ui.screens.player.autosync.applyAutoSyncSidecarTimeline
 import com.nuvio.tv.ui.screens.player.autosync.maxAlignmentShiftMs
 import com.nuvio.tv.ui.screens.player.autosync.replaceAutoSyncSidecarSubtitle
+import com.nuvio.tv.ui.screens.player.audiosync.AudioSyncFallback
+import com.nuvio.tv.ui.screens.player.audiosync.AudioSyncTaps
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.launch
@@ -49,7 +51,8 @@ internal fun PlayerRuntimeController.autoSyncExtractorsFactory(
     url: String,
     headers: Map<String, String>,
 ): ExtractorsFactory {
-    val factory = AutoSyncExtractorsFactory(delegate = delegate, sourceKey = url)
+    // Audio is copied too, for the audio sync fallback (idle unless it is listening).
+    val factory = AutoSyncExtractorsFactory(delegate = AudioSyncTaps.wrapExtractors(delegate, url), sourceKey = url)
     prefetchAutoSyncIndex(url, headers)
     return factory
 }
@@ -74,6 +77,7 @@ internal fun PlayerRuntimeController.runSelectedAutomaticSubtitleSync(subtitle: 
 internal fun PlayerRuntimeController.cancelAutomaticSubtitleSync() {
     automaticSubtitleSyncJob?.cancel()
     automaticSubtitleSyncJob = null
+    AudioSyncFallback.release(this)
 }
 
 internal fun PlayerRuntimeController.maybeRunAutomaticSubtitleSync(
@@ -133,6 +137,8 @@ internal fun PlayerRuntimeController.maybeRunAutomaticSubtitleSync(
         .buildUpon()
         .setTrackTypeDisabled(C.TRACK_TYPE_TEXT, true)
         .build()
+    val audioFallback = AudioSyncFallback.of(this)
+    audioFallback?.arm()
 
     automaticSubtitleSyncJob = scope.launch {
         launch {
@@ -199,6 +205,13 @@ internal fun PlayerRuntimeController.maybeRunAutomaticSubtitleSync(
                 if (activeSidecarSubtitleKey == null) {
                     startSidecarAddonSubtitle(selectedSubtitle)
                 }
+                // Original timing kept: sync it to the audio instead, when AutoSync found nothing
+                // to align to or only a weak match (not when the subtitle itself failed to load).
+                if (analysisOutcome != AutoSyncAnalysisOutcome.SUBTITLE_UNAVAILABLE && currentStreamUrl == sourceUrlAtStart) {
+                    audioFallback?.takeOver(selectedUrl)
+                } else {
+                    audioFallback?.disarm()
+                }
                 AutoSyncDebugLog.finishAndCopy(
                     context,
                     "REJECT V2 - original subtitle timing kept",
@@ -212,6 +225,7 @@ internal fun PlayerRuntimeController.maybeRunAutomaticSubtitleSync(
                 return@launch
             }
 
+            audioFallback?.disarm()
             if (currentStreamUrl != sourceUrlAtStart) return@launch
             val activeSubtitleUrl = _uiState.value.selectedAddonSubtitle?.url
             if (activeSubtitleUrl != selectedUrl && activeSubtitleUrl != resolved.subtitleUrl) {
@@ -322,6 +336,7 @@ internal fun PlayerRuntimeController.maybeRunAutomaticSubtitleSync(
         } catch (error: Throwable) {
             Log.w(PlayerRuntimeController.TAG, "AUTO_SYNC_V2 failed", error)
             AutoSyncDebugLog.error(error) { "TV bridge failed" }
+            audioFallback?.disarm()
             AutoSyncDebugLog.finishAndCopy(context, "failed")
             if (activeSidecarSubtitleKey == null) {
                 startSidecarAddonSubtitle(selectedSubtitle)
