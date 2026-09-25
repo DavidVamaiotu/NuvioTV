@@ -25,6 +25,7 @@ internal object AutoSyncPreferences {
     private val _enabled = MutableStateFlow(false)
     val enabled: StateFlow<Boolean> = _enabled.asStateFlow()
 
+    /** Thorough search: stop only on a stronger match; the applied match is gated the same. */
     private val _aggressiveMode = MutableStateFlow(true)
     val aggressiveMode: StateFlow<Boolean> = _aggressiveMode.asStateFlow()
 
