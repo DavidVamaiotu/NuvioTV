@@ -876,8 +876,6 @@
     <string name="tmdb_basic_info_subtitle">Opis, žanri in ocena iz TMDB</string>
     <string name="tmdb_details_title">Podrobnosti</string>
     <string name="tmdb_details_subtitle">Čas izvajanja, datum izdaje, država in jezik iz TMDB</string>
-	<string name="tmdb_release_dates_title">Datumi izida</string>
-    <string name="tmdb_release_dates_subtitle">Datumi izida in predvajanja s TMDB</string>															  
 	<string name="tmdb_credits_title">Zasedba</string>
     <string name="tmdb_credits_subtitle">Igralska zasedba s fotografijami, režiser in scenarist iz TMDB</string>
     <string name="tmdb_productions_title">Produkcije</string>

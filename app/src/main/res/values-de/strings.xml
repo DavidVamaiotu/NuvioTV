@@ -916,8 +916,6 @@
     <string name="tmdb_basic_info_subtitle">Beschreibung, Genres und Bewertung von TMDB</string>
     <string name="tmdb_details_title">Details</string>
     <string name="tmdb_details_subtitle">Laufzeit, Erscheinungsdatum, Land und Sprache von TMDB</string>
-    <string name="tmdb_release_dates_title">Erscheinungsdaten</string>
-    <string name="tmdb_release_dates_subtitle">Erscheinungsdaten von TMDB</string>
     <string name="tmdb_credits_title">Credits</string>
     <string name="tmdb_credits_subtitle">Besetzung mit Fotos, Regisseur und Drehbuchautor von TMDB</string>
     <string name="tmdb_productions_title">Produktionen</string>

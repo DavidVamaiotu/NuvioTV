@@ -1340,8 +1340,6 @@
     <string name="tmdb_basic_info_subtitle">Opis, žanrovi i ocena sa TMDB-a</string>
     <string name="tmdb_details_title">Detalji</string>
     <string name="tmdb_details_subtitle">Trajanje, status, zemlja i jezik sa TMDB-a</string>
-    <string name="tmdb_release_dates_title">Datumi objavljivanja</string>
-    <string name="tmdb_release_dates_subtitle">Datumi objavljivanja i emitovanja sa TMDB-a</string>
     <string name="tmdb_credits_title">Zasluge</string>
     <string name="tmdb_credits_subtitle">Glumačka ekipa sa fotografijama, režiser i scenarista sa TMDB-a</string>
     <string name="tmdb_productions_title">Produkcije</string>

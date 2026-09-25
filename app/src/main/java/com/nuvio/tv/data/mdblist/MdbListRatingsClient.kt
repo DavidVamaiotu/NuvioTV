@@ -2,9 +2,9 @@ package com.nuvio.tv.data.mdblist
 
 import com.nuvio.tv.data.remote.api.MDBListApi
 import com.nuvio.tv.data.remote.dto.mdblist.MDBListMediaResponseDto
-import com.nuvio.tv.data.remote.dto.mdblist.MDBListRatingRequestDto
-import com.nuvio.tv.data.remote.dto.mdblist.MDBListRatingResponseDto
+import com.nuvio.tv.data.remote.dto.mdblist.MDBListMediaRequestDto
 import com.squareup.moshi.Moshi
+import com.squareup.moshi.Types
 import javax.inject.Inject
 import javax.inject.Singleton
 import retrofit2.Response
@@ -25,13 +25,19 @@ class MdbListRatingsClient @Inject constructor(
     moshi: Moshi
 ) {
     private val mediaAdapter = moshi.adapter(MDBListMediaResponseDto::class.java)
-    private val ratingAdapter = moshi.adapter(MDBListRatingResponseDto::class.java)
-    private val requestAdapter = moshi.adapter(MDBListRatingRequestDto::class.java)
+    private val batchAdapter = moshi.adapter<List<MDBListMediaResponseDto>>(
+        Types.newParameterizedType(List::class.java, MDBListMediaResponseDto::class.java)
+    )
+    private val requestAdapter = moshi.adapter(MDBListMediaRequestDto::class.java)
 
     fun credential(apiKey: String): MdbListRatingsCredential? {
         apiKey.trim().takeIf { it.isNotEmpty() }?.let { return MdbListRatingsCredential.ApiKey(it) }
         val state = authStore.state.value
         return if (state.isAuthenticated) MdbListRatingsCredential.Account(state.scope) else null
+    }
+
+    fun checkCredential(credential: MdbListRatingsCredential) {
+        if (credential is MdbListRatingsCredential.Account) authStore.checkScope(credential.scope)
     }
 
     suspend fun getMedia(
@@ -49,20 +55,22 @@ class MdbListRatingsClient @Inject constructor(
         )
     }
 
-    suspend fun getRating(
+    suspend fun getMediaBatch(
         mediaType: String,
-        ratingType: String,
-        credential: MdbListRatingsCredential,
-        body: MDBListRatingRequestDto
-    ): MDBListRatingResponseDto? = when (credential) {
-        is MdbListRatingsCredential.ApiKey -> api.getRating(mediaType, ratingType, credential.value, body).bodyOrThrow()
-        is MdbListRatingsCredential.Account -> ratingAdapter.fromJson(
-            accountApi.post(
-                "/rating/$mediaType/$ratingType",
-                body = requestAdapter.toJson(body),
-                scope = credential.scope
-            ).body
-        )
+        imdbIds: List<String>,
+        credential: MdbListRatingsCredential
+    ): List<MDBListMediaResponseDto>? {
+        val body = MDBListMediaRequestDto(imdbIds)
+        return when (credential) {
+            is MdbListRatingsCredential.ApiKey -> api.getMediaBatch(mediaType, credential.value, body).bodyOrThrow()
+            is MdbListRatingsCredential.Account -> batchAdapter.fromJson(
+                accountApi.post(
+                    "/imdb/$mediaType/",
+                    body = requestAdapter.toJson(body),
+                    scope = credential.scope
+                ).body
+            )
+        }
     }
 
     private fun <T> Response<T>.bodyOrThrow(): T? {

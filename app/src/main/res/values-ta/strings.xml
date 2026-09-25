@@ -900,8 +900,6 @@
     <string name="tmdb_basic_info_subtitle">விளக்கம், வகைகள் மற்றும் மதிப்பீடு டிஎம்டிபியிலிருந்து</string>
     <string name="tmdb_details_title">விவரங்கள்</string>
     <string name="tmdb_details_subtitle">இயக்க நேரம், நிலை, நாடு மற்றும் மொழி டிஎம்டிபியிலிருந்து</string>
-    <string name="tmdb_release_dates_title">வெளியீட்டு தேதிகள்</string>
-    <string name="tmdb_release_dates_subtitle">வெளியீட்டு மற்றும் ஒளிபரப்பு தேதிகள் டிஎம்டிபியிலிருந்து</string>
     <string name="tmdb_credits_title">பங்களிப்புகள்</string>
     <string name="tmdb_credits_subtitle">புகைப்படங்களுடன் நடிகர்கள், இயக்குநர் மற்றும் எழுத்தாளர் டிஎம்டிபியிலிருந்து</string>
     <string name="tmdb_productions_title">தயாரிப்புகள்</string>

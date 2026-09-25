@@ -1046,8 +1046,6 @@
     <string name="tmdb_basic_info_subtitle">Deskripsi, genre, dan rating dari TMDB</string>
     <string name="tmdb_details_title">Detail</string>
     <string name="tmdb_details_subtitle">Durasi, status, negara, dan bahasa dari TMDB</string>
-    <string name="tmdb_release_dates_title">Tanggal Rilis</string>
-    <string name="tmdb_release_dates_subtitle">Tanggal rilis dan tayang dari TMDB</string>
     <string name="tmdb_credits_title">Kredit</string>
     <string name="tmdb_credits_subtitle">Pemeran dengan foto, sutradara, dan penulis dari TMDB</string>
     <string name="tmdb_productions_title">Produksi</string>

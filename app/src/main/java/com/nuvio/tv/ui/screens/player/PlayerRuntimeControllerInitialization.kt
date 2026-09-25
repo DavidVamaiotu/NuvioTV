@@ -481,19 +481,13 @@ internal fun PlayerRuntimeController.initializePlayer(
             val isHlsStream = isHls || resolvedStreamMime == MimeTypes.APPLICATION_M3U8
             val isDashStream = resolvedStreamMime == MimeTypes.APPLICATION_MPD
             val parallelActive = playerSettings.parallelNetworkEnabled && playerSettings.useParallelConnections
-            val mp4SessionMode = !parallelActive && !isHlsStream && !isDashStream &&
-                resolvedStreamMime == MimeTypes.VIDEO_MP4
-            val useChunkSessionSource = (parallelActive || mp4SessionMode) &&
-                !isHlsStream && !isDashStream
+            val useChunkSessionSource = parallelActive && !isHlsStream && !isDashStream
 
             val parallelOverheadMb = if (useChunkSessionSource) {
-                val connCount = if (mp4SessionMode) 1 else playerSettings.parallelConnectionCount
-                val chunkMb = if (mp4SessionMode) {
-                    (PlayerMediaSourceFactory.MP4_SESSION_CHUNK_BYTES / (1024L * 1024L)).toInt().coerceAtLeast(1)
-                } else {
-                    Math.ceil(playerSettings.parallelChunkSizeKb / 1024.0).toInt().coerceAtMost(MemoryBudget.tierMaxChunkMb)
-                }
-                MemoryBudget.parallelOverheadMb(connCount, chunkMb)
+                val chunkMb = Math.ceil(playerSettings.parallelChunkSizeKb / 1024.0)
+                    .toInt()
+                    .coerceAtMost(MemoryBudget.tierMaxChunkMb)
+                MemoryBudget.parallelOverheadMb(playerSettings.parallelConnectionCount, chunkMb)
             } else {
                 0
             }

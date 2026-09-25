@@ -196,35 +196,21 @@ internal class PlayerMediaSourceFactory(private val context: Context) {
                 PlayerMemoryReporter.snapshot(context)
         )
         PlayerMemoryReporter.startSampling(context)
-        val mp4SessionMode = !useParallelConnections && !isHls && !isDash &&
-            resolvedMimeType == MimeTypes.VIDEO_MP4
-        val useChunkSessionSource = (useParallelConnections || mp4SessionMode) && !isHls && !isDash
+        val useChunkSessionSource = useParallelConnections && !isHls && !isDash
         parallelStartupPrefetchUnlocked.set(!useChunkSessionSource)
         val progressiveUpstreamFactory: DataSource.Factory = if (useChunkSessionSource) {
-            if (mp4SessionMode) {
-                Log.i(
-                    "PlayerMediaSourceFactory",
-                    "MP4_SESSION engaged: single-connection chunk session " +
-                        "(${MP4_SESSION_CHUNK_BYTES / (1024L * 1024L)} MB chunks) " +
-                        "for progressive MP4 with parallel connections off"
-                )
-            }
             val okHttpFactory = OkHttpDataSource.Factory(playbackHttpClient).apply {
                 setDefaultRequestProperties(sanitizedHeaders)
                 setUserAgent(DEFAULT_USER_AGENT)
                 setTransferListener(PlaybackThroughput.networkByteCounter)
             }
-            val sessionConnections = if (mp4SessionMode) 1 else parallelConnectionCount
-            val sessionChunkBytes = if (mp4SessionMode) {
-                MP4_SESSION_CHUNK_BYTES
-            } else {
-                // Runtime enforcement of the tier chunk cap: a value
-                // persisted before the cap existed (or on another device)
-                // must not bypass it.
-                parallelChunkSizeKb
-                    .coerceAtMost(com.nuvio.tv.ui.screens.settings.MemoryBudget.tierMaxChunkMb * 1024)
-                    .toLong() * 1024L
-            }
+            val sessionConnections = parallelConnectionCount
+            // Runtime enforcement of the tier chunk cap: a value
+            // persisted before the cap existed (or on another device)
+            // must not bypass it.
+            val sessionChunkBytes = parallelChunkSizeKb
+                .coerceAtMost(com.nuvio.tv.ui.screens.settings.MemoryBudget.tierMaxChunkMb * 1024)
+                .toLong() * 1024L
             val effectiveNative =
                 nuvioPerformanceModeEnabled || NuvioEngineConfig.get().isNativeAllocationEnabled()
             ParallelRangeDataSource.Factory(
@@ -410,7 +396,6 @@ internal class PlayerMediaSourceFactory(private val context: Context) {
 
     companion object {
         private const val MIME_VIDEO_QUICK_TIME = "video/quicktime"
-        internal const val MP4_SESSION_CHUNK_BYTES = 8L * 1024L * 1024L
         private const val ENABLE_VOD_CACHE = true
         private const val VOD_CACHE_FREE_SPACE_RESERVE_BYTES = 1024L * 1024L * 1024L
         private const val VOD_CACHE_DIR_NAME = "nuvio_vod_cache"

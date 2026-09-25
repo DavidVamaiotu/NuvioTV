@@ -1112,8 +1112,6 @@
     <string name="tmdb_basic_info_subtitle">Beskrivelse, genrer og bedømmelse fra TMDB</string>
     <string name="tmdb_details_title">Detaljer</string>
     <string name="tmdb_details_subtitle">Varighed, status, land og sprog fra TMDB</string>
-    <string name="tmdb_release_dates_title">Udgivelsesdatoer</string>
-    <string name="tmdb_release_dates_subtitle">Udgivelses- og sendedatoer fra TMDB</string>
     <string name="tmdb_credits_title">Credits</string>
     <string name="tmdb_credits_subtitle">Medvirkende med fotos, instruktør og manuskriptforfatter fra TMDB</string>
     <string name="tmdb_productions_title">Produktioner</string>
