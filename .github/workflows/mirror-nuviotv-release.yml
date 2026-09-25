@@ -98,110 +98,43 @@ jobs:
         run: |
           set -euo pipefail
 
+          # A real merge (not --squash) records the official release in history, so the next
+          # sync only brings in what changed since this one.
           set +e
-          git merge --squash "refs/tags/nuvio-$UPSTREAM_TAG"
+          git merge --no-ff --no-commit "refs/tags/nuvio-$UPSTREAM_TAG"
           MERGE_STATUS=$?
           set -e
+
+          # Fork-owned workflows always win.
+          git restore --source=HEAD --staged --worktree .github/workflows
 
           if (( MERGE_STATUS != 0 )); then
             mapfile -t CONFLICTS < <(git diff --name-only --diff-filter=U)
             printf 'Upstream merge conflicts: %s\n' "${CONFLICTS[*]}"
 
-            if (( ${#CONFLICTS[@]} != 1 )) || [[ "${CONFLICTS[0]}" != "app/build.gradle.kts" ]]; then
-              echo "Unexpected upstream conflicts; refusing to guess a resolution." >&2
-              exit "$MERGE_STATUS"
-            fi
+            for FILE in "${CONFLICTS[@]}"; do
+              if [[ "$FILE" != "app/build.gradle.kts" ]]; then
+                echo "Unexpected upstream conflict in $FILE; refusing to guess a resolution." >&2
+                exit "$MERGE_STATUS"
+              fi
+            done
 
-            # Gradle is the only intentionally shared integration point. Start
-            # from the upstream file, then reapply the three small AutoSync fork
-            # overrides. If upstream refactors any marker, fail loudly.
+            # The fork's only edit to Nuvio's build file is the line applying reshaped.gradle,
+            # so take Nuvio's file and put that line back.
             git checkout --theirs -- app/build.gradle.kts
-
-            python3 - <<'PY'
-          from pathlib import Path
-
-          path = Path("app/build.gradle.kts")
-          text = path.read_text()
-
-          insertion_marker = 'val useLocalFfmpegDecoder = truthy('
-          autosync_decl = '''val autoSyncFork = parseBooleanProperty(
-              resolveProperty(devProperties, localProperties, "AUTOSYNC_FORK", "false")
-          )
-          // Nuvio RS: releases also ship a universal "bridge" APK under the pre-rename id, so installs
-          // from before the rename update in place and then hand their settings to Nuvio RS.
-          val reshapedLegacyBridge = providers.gradleProperty("nuvio.reshaped.legacyBridge").orNull.toBoolean()
-          '''
-          if "val autoSyncFork = parseBooleanProperty(" not in text:
-              if text.count(insertion_marker) != 1:
-                  raise SystemExit("AutoSync Gradle marker for useLocalFfmpegDecoder changed upstream")
-              text = text.replace(insertion_marker, autosync_decl + insertion_marker, 1)
-
-          upstream_app_id = '        applicationId = "com.nuvio.tv"'
-          autosync_app_id = '        applicationId = if (autoSyncFork) (if (reshapedLegacyBridge) "com.nuviodebug.com" else "com.nuvioreshaped.tv") else "com.nuvio.tv"'
-          if autosync_app_id not in text:
-              if text.count(upstream_app_id) != 1:
-                  raise SystemExit("AutoSync Gradle applicationId marker changed upstream")
-              text = text.replace(upstream_app_id, autosync_app_id, 1)
-
-          upstream_updater = '''        buildConfigField("String", "GITHUB_OWNER", "\\"NuvioMedia\\"")
-                  buildConfigField("String", "GITHUB_REPO", "\\"NuvioTV\\"")'''
-          autosync_updater = '''        buildConfigField(
-                      "String",
-                      "GITHUB_OWNER",
-                      buildConfigString(
-                          resolveProperty(
-                              devProperties,
-                              localProperties,
-                              "NUVIO_UPDATE_GITHUB_OWNER",
-                              "NuvioMedia"
-                          )
-                      )
-                  )
-                  buildConfigField(
-                      "String",
-                      "GITHUB_REPO",
-                      buildConfigString(
-                          resolveProperty(
-                              devProperties,
-                              localProperties,
-                              "NUVIO_UPDATE_GITHUB_REPO",
-                              "NuvioTV"
-                          )
-                      )
-                  )
-                  buildConfigField("boolean", "AUTOSYNC_FORK", autoSyncFork.toString())'''
-          if 'buildConfigField("boolean", "AUTOSYNC_FORK", autoSyncFork.toString())' not in text:
-              if text.count(upstream_updater) != 1:
-                  raise SystemExit("AutoSync Gradle updater markers changed upstream")
-              text = text.replace(upstream_updater, autosync_updater, 1)
-
-          reshaped_names = '''
-          // Nuvio RS: the "Nuvio RS" app name for every locale; the legacy bridge keeps the old name.
-          if (autoSyncFork && !reshapedLegacyBridge) {
-              android.sourceSets.getByName("full").res.srcDir("src/reshaped/res")
-          }
-          '''
-          if 'srcDir("src/reshaped/res")' not in text:
-              text = text.rstrip("\n") + "\n" + reshaped_names
-
-          path.write_text(text)
-          PY
-
+            HOOK='apply(from = "reshaped.gradle") // Nuvio RS hook: fork build settings'
+            grep -qxF "$HOOK" app/build.gradle.kts || printf '\n%s\n' "$HOOK" >> app/build.gradle.kts
             git add app/build.gradle.kts
-
-            if git diff --name-only --diff-filter=U | grep -q .; then
-              echo "Unresolved upstream conflicts remain." >&2
-              git diff --name-only --diff-filter=U >&2
-              exit 1
-            fi
           fi
 
-          git restore --source=HEAD --staged --worktree .github/workflows
-
-          if git diff --cached --quiet; then
-            echo "No source changes to commit."
+          if [[ ! -f .git/MERGE_HEAD ]]; then
+            if (( MERGE_STATUS != 0 )); then
+              echo "git merge failed without starting a merge." >&2
+              exit "$MERGE_STATUS"
+            fi
+            echo "Official release $UPSTREAM_TAG is already merged."
           else
-            git commit -m "Sync NuvioTV $UPSTREAM_TAG"
+            git commit --no-edit -m "Sync NuvioTV $UPSTREAM_TAG"
           fi
 
       - name: Choose next AutoSync revision
@@ -263,12 +196,12 @@ jobs:
             fi
             if [[ -n "$PREVIOUS_TAG" ]] && git rev-parse --verify --quiet "$PREVIOUS_TAG^{commit}" >/dev/null; then
               CHANGES="$(
-                git log --reverse --no-merges --pretty=format:'%s' "$PREVIOUS_TAG..HEAD" -- . ':(exclude).github/workflows/**' ':(exclude).github/autosync-release-notes.md' |
+                git log --reverse --no-merges --first-parent --pretty=format:'%s' "$PREVIOUS_TAG..HEAD" -- . ':(exclude).github/workflows/**' ':(exclude).github/autosync-release-notes.md' |
                   grep -Ev '^(Trigger AutoSync release|Release .*autosync|Sync NuvioTV )' || true
               )"
             else
               CHANGES="$(
-                git log -20 --reverse --no-merges --pretty=format:'%s' -- . ':(exclude).github/workflows/**' ':(exclude).github/autosync-release-notes.md' |
+                git log -20 --reverse --no-merges --first-parent --pretty=format:'%s' -- . ':(exclude).github/workflows/**' ':(exclude).github/autosync-release-notes.md' |
                   grep -Ev '^(Trigger AutoSync release|Release .*autosync|Sync NuvioTV )' || true
               )"
             fi

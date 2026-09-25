@@ -82,7 +82,7 @@ jobs:
             fi
             if [[ "$HAS_PREVIOUS" == "true" ]]; then
               CHANGES="$(
-                git log --reverse --no-merges --pretty=format:'%s' "$PREVIOUS_TAG..HEAD" -- . \
+                git log --reverse --no-merges --first-parent --pretty=format:'%s' "$PREVIOUS_TAG..HEAD" -- . \
                   ':(exclude).github/workflows/**' ':(exclude).github/autosync-release-notes.md' |
                   grep -Ev '^(Trigger .*AutoSync|Release .*autosync|Sync NuvioTV )' || true
               )"
