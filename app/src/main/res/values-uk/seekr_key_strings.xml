@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="settings_seek_preview_section">Прев’ю під час перемотування</string>
+    <string name="settings_seekr_api_key">API-ключ Seekr</string>
+    <string name="settings_seekr_api_key_builtin">Вбудований ключ (спільний, 40 тайтлів на день)</string>
+    <string name="settings_seekr_api_key_custom">Власний ключ</string>
+    <string name="settings_seekr_api_key_description">Мініатюри під час перемотування завантажуються з seekr.tv. Вбудований ключ спільний для всіх і дозволяє лише 40 різних тайтлів на день, тому прев’ю можуть перестати працювати. Отримайте безкоштовний ключ на seekr.tv і вставте його сюди. Залиште порожнім, щоб використовувати вбудований ключ.</string>
+    <string name="settings_seekr_api_key_invalid">Seekr не прийняв цей ключ.</string>
+</resources>

@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="settings_seek_preview_section">תצוגה מקדימה בדילוג</string>
+    <string name="settings_seekr_api_key">מפתח API של Seekr</string>
+    <string name="settings_seekr_api_key_builtin">מפתח מובנה (משותף, 40 כותרים ביום)</string>
+    <string name="settings_seekr_api_key_custom">מפתח משלך</string>
+    <string name="settings_seekr_api_key_description">תמונות התצוגה המקדימה מגיעות מ-seekr.tv. המפתח המובנה משותף לכולם ומאפשר רק 40 כותרים שונים ביום, ולכן התצוגה המקדימה עלולה להפסיק לעבוד. קבלו מפתח חינמי ב-seekr.tv והדביקו אותו כאן. השאירו ריק כדי להשתמש במפתח המובנה.</string>
+    <string name="settings_seekr_api_key_invalid">Seekr לא קיבל את המפתח הזה.</string>
+</resources>

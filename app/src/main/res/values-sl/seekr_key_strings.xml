@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="settings_seek_preview_section">Predogledi ob previjanju</string>
+    <string name="settings_seekr_api_key">API-ključ Seekr</string>
+    <string name="settings_seekr_api_key_builtin">Vgrajeni ključ (skupni, 40 naslovov na dan)</string>
+    <string name="settings_seekr_api_key_custom">Lasten ključ</string>
+    <string name="settings_seekr_api_key_description">Sličice predogleda prihajajo s seekr.tv. Vgrajeni ključ si delijo vsi in dovoljuje le 40 različnih naslovov na dan, zato lahko predogledi prenehajo delovati. Na seekr.tv pridobite brezplačen ključ in ga prilepite sem. Pustite prazno za vgrajeni ključ.</string>
+    <string name="settings_seekr_api_key_invalid">Seekr tega ključa ni sprejel.</string>
+</resources>

@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="settings_seek_preview_section">सीक प्रीव्यू</string>
+    <string name="settings_seekr_api_key">Seekr API कुंजी</string>
+    <string name="settings_seekr_api_key_builtin">अंतर्निहित कुंजी (साझा, प्रतिदिन 40 टाइटल)</string>
+    <string name="settings_seekr_api_key_custom">आपकी अपनी कुंजी</string>
+    <string name="settings_seekr_api_key_description">सीक करते समय दिखने वाले प्रीव्यू seekr.tv से आते हैं। अंतर्निहित कुंजी सभी साझा करते हैं और यह प्रतिदिन केवल 40 अलग टाइटल की अनुमति देती है, इसलिए प्रीव्यू काम करना बंद कर सकते हैं। seekr.tv पर मुफ़्त कुंजी लें और यहाँ चिपकाएँ। अंतर्निहित कुंजी के लिए खाली छोड़ें।</string>
+    <string name="settings_seekr_api_key_invalid">Seekr ने यह कुंजी स्वीकार नहीं की।</string>
+</resources>

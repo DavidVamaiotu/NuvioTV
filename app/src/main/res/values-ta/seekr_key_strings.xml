@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="settings_seek_preview_section">தேடல் முன்னோட்டங்கள்</string>
+    <string name="settings_seekr_api_key">Seekr API விசை</string>
+    <string name="settings_seekr_api_key_builtin">உள்ளமைந்த விசை (பகிர்ந்தது, நாளுக்கு 40 தலைப்புகள்)</string>
+    <string name="settings_seekr_api_key_custom">உங்கள் சொந்த விசை</string>
+    <string name="settings_seekr_api_key_description">தேடும்போது தெரியும் முன்னோட்டப் படங்கள் seekr.tv இலிருந்து வருகின்றன. உள்ளமைந்த விசையை அனைவரும் பகிர்ந்து பயன்படுத்துகிறார்கள், அது நாளுக்கு 40 வெவ்வேறு தலைப்புகளை மட்டுமே அனுமதிக்கும், எனவே முன்னோட்டங்கள் வேலை செய்வதை நிறுத்தலாம். seekr.tv இல் இலவச விசையைப் பெற்று இங்கே ஒட்டவும். உள்ளமைந்த விசையைப் பயன்படுத்த காலியாக விடவும்.</string>
+    <string name="settings_seekr_api_key_invalid">Seekr இந்த விசையை ஏற்கவில்லை.</string>
+</resources>
