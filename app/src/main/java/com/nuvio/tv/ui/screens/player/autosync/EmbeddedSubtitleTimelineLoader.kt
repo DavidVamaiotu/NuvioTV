@@ -422,7 +422,7 @@ internal object EmbeddedSubtitleTimelineLoader {
 
         if (subtitleTracks.all { track -> parsedCues[track.number]?.cues.orEmpty().isEmpty() }) {
             AutoSyncDebugLog.warn {
-                "MKV index no subtitle Cue entries; skipping Media3 wait"
+                "MKV index no subtitle Cue entries; using sparse Media3 fallback"
             }
             return IndexedEmbeddedTimeline(
                 tracks = emptyList(),
