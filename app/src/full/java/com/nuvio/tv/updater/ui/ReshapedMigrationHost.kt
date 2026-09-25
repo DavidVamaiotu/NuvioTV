@@ -6,6 +6,7 @@ import android.app.Activity
 import android.content.Context
 import android.content.Intent
 import android.net.Uri
+import android.provider.Settings
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -209,10 +210,15 @@ private fun launch(context: Context, packageName: String) {
     context.startActivity(intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
 }
 
+/**
+ * Opens the app's system settings page, where the user selects Uninstall. Uninstalling directly
+ * would need REQUEST_DELETE_PACKAGES, which Play Protect treats as a warning sign.
+ */
 private fun uninstall(context: Context, packageName: String) {
     runCatching {
         context.startActivity(
-            Intent(Intent.ACTION_DELETE, Uri.parse("package:$packageName")).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
+            Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.parse("package:$packageName"))
+                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
         )
     }
 }
