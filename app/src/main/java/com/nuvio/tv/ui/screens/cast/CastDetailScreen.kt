@@ -123,6 +123,7 @@ fun CastDetailScreen(
     Box(
         modifier = Modifier
             .fillMaxSize()
+            .background(NuvioTheme.colors.Background)
     ) {
         Crossfade(
             targetState = uiState,
@@ -216,7 +217,7 @@ private fun CastDetailContent(
         }
     }
 
-    Box(modifier = Modifier.fillMaxSize()) {
+        Box(modifier = Modifier.fillMaxSize().background(backgroundColor)) {
         // Left accent gradient overlay
         val accentGradient = remember(accentColor, backgroundColor) {
             Brush.horizontalGradient(
@@ -644,7 +645,7 @@ private fun CastDetailSkeleton(personName: String) {
     val accentColor = NuvioTheme.colors.Secondary
     val shimmerBrush = rememberShimmerBrush()
 
-    Box(modifier = Modifier.fillMaxSize()) {
+    Box(modifier = Modifier.fillMaxSize().background(backgroundColor)) {
         val accentGradient = remember(accentColor, backgroundColor) {
             Brush.horizontalGradient(
                 colorStops = arrayOf(
@@ -775,7 +776,9 @@ private fun CastDetailError(
     onRetry: () -> Unit
 ) {
     Box(
-        modifier = Modifier.fillMaxSize(),
+        modifier = Modifier
+            .fillMaxSize()
+            .background(NuvioTheme.colors.Background),
         contentAlignment = Alignment.Center
     ) {
         Column(horizontalAlignment = Alignment.CenterHorizontally) {
