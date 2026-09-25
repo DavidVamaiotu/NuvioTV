@@ -1,2 +1,3 @@
-- **Fewer install warnings.** Nuvio RS no longer asks for permission to uninstall other apps, which made Google Play Protect more likely to flag it. "Uninstall old app" now opens the old app's page in Android settings, where you tap Uninstall.
+- **Seek previews on stable.** While scrubbing, thumbnails show where you'll land, as on the beta builds. Scrubbing with the D-pad steps frame by frame, and a Preview Sync panel lines the thumbnails up if a release is offset.
+- **Fewer install warnings.** Nuvio RS no longer asks for permission to uninstall other apps, which made Google Play Protect more likely to flag it. "Uninstall old app" now opens the old app's page in Android settings, where you select Uninstall.
 - **Still on the old app?** Update it once more from its update banner: that installs the last "old" version, which moves you to Nuvio RS and brings your settings along.
