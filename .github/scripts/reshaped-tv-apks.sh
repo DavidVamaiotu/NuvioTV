@@ -31,6 +31,8 @@ build() {
   done
 
   rm -rf "$SOURCE_DIR"
+  # A fresh daemon: two R8 runs in one daemon can exhaust the runner's memory.
+  ./gradlew --stop
   ./gradlew :app:assembleFullRelease -Pnuvio.reshaped.legacyBridge=true --build-cache --stacktrace
   test -f "$SOURCE_DIR/app-full-universal-release.apk"
   mv "$SOURCE_DIR/app-full-universal-release.apk" "$(bridge_apk "$tag")"
