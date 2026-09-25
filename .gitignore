@@ -63,3 +63,5 @@ AGENTS.md
 /PR.md
 docs/
 status-page/
+app/libs/sherpa-onnx-*.aar
+app/libs/sherpa-onnx-*.aar.part
