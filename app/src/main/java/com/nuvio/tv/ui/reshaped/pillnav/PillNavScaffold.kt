@@ -114,12 +114,17 @@ internal fun PillNavScaffold(
         if (!showBar) {
             pendingBarFocus = false
             pendingContentFocus = false
-            state.show()
         }
     }
 
-    // A new root screen starts with the pill visible, like the phone on a tab change.
-    LaunchedEffect(selectedDrawerRoute) { state.show() }
+    // A new root screen starts with the pill visible, like the phone on a tab change. Coming back to the same
+    // root screen from a detail screen keeps it tucked away if it was, since that screen returns scrolled.
+    val lastRootRoute = remember { arrayOfNulls<String>(1) }
+    LaunchedEffect(currentRoute, showBar) {
+        if (!showBar || currentRoute == lastRootRoute[0]) return@LaunchedEffect
+        lastRootRoute[0] = currentRoute
+        state.show()
+    }
 
     val requestBarFocus = {
         state.show()
@@ -235,7 +240,8 @@ internal fun PillNavScaffold(
                 NuvioNavHost(
                     navController = navController,
                     startDestination = startDestination,
-                    hideBuiltInHeaders = true,
+                    // Only root screens keep their header band free for the pill; others show their own titles.
+                    hideBuiltInHeaders = showBar,
                 )
             }
         }

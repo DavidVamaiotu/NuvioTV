@@ -31,6 +31,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.draw.drawWithCache
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusProperties
@@ -182,7 +183,8 @@ internal fun PillNavigationBar(
     val showLens = lensTarget != null
 
     val accent = NuvioTheme.colors.Secondary
-    val glassColor by animateColorAsState(
+    // Read only inside drawBehind below, so the focus colour fade redraws without recomposing every frame.
+    val glassColor = animateColorAsState(
         targetValue = when {
             barFocused -> GlassFocusedColor.copy(alpha = if (frosted) 0.88f else 0.95f)
             else -> GlassBaseColor.copy(alpha = if (frosted) 0.80f else 0.90f)
@@ -219,7 +221,9 @@ internal fun PillNavigationBar(
                     scaleX = 1f - 0.05f * h
                     scaleY = 1f - 0.05f * h
                 }
-                .background(glassColor, shape)
+                .drawBehind {
+                    drawRoundRect(color = glassColor.value, cornerRadius = CornerRadius(size.minDimension / 2f))
+                }
                 .then(if (frosted) Modifier.background(FrostSheen, shape) else Modifier)
                 .border(width = if (barFocused) 1.5.dp else 1.dp, brush = rimBrush, shape = shape),
         ) {
