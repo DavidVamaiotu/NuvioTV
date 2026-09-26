@@ -87,6 +87,7 @@ internal fun PlayerRuntimeController.initializeMpvPlayer(
     mpvMediaLoadPrepared = true
     _exoPlayer?.release()
     _exoPlayer = null
+    com.nuvio.tv.ui.screens.player.seekbuffer.SeekReadAhead.release() // Nuvio RS hook: libmpv opens its own connection
     trackSelector = null
     try {
         currentMediaSession?.release()
