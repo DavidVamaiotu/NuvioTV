@@ -1132,7 +1132,8 @@ open class MainActivity : ComponentActivity() {
                                     currentRoute = currentRoute, rootRoutes = rootRoutes, drawerItems = drawerItems, selectedDrawerRoute = selectedDrawerRoute,
                                     blurEnabled = modernSidebarBlurEnabled, activeProfileName = activeProfile?.name ?: "",
                                     activeProfileColorHex = activeProfile?.avatarColorHex ?: "#1E88E5", activeProfileAvatarImageUrl = activeProfileAvatarImageUrl,
-                                    showProfileSelector = profiles.size > 1, onSwitchProfile = handleSwitchProfile, onNavigate = { optimisticRoute = it }, onExitApp = handleExitApp
+                                    showProfileSelector = profiles.size > 1, onSwitchProfile = handleSwitchProfile, onNavigate = { optimisticRoute = it }, onExitApp = handleExitApp,
+                                    topBannerVisible = updateBannerState.showBanner && updateBannerState.update != null
                                 )
                             } else if (modernSidebarEnabled) {
                                 ModernSidebarScaffold(

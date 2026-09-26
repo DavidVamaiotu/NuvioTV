@@ -2,6 +2,8 @@ package com.nuvio.tv.ui.reshaped.pillnav
 
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.LinearOutSlowInEasing
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
@@ -22,7 +24,6 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.Stable
-import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
@@ -30,8 +31,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.draw.drawWithCache
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusProperties
 import androidx.compose.ui.focus.focusRequester
@@ -56,7 +56,6 @@ import androidx.compose.ui.layout.positionInParent
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.tv.material3.Icon
@@ -66,31 +65,31 @@ import coil3.request.ImageRequest
 import com.nuvio.tv.ui.components.ProfileAvatarCircle
 import com.nuvio.tv.ui.theme.NuvioMotion
 import com.nuvio.tv.ui.theme.NuvioTheme
-import dev.chrisbanes.haze.HazeInputScale
-import dev.chrisbanes.haze.HazeState
-import dev.chrisbanes.haze.hazeEffect
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.launch
 
-/** 10-foot sizes: the phone pill scaled up for couch distance and kept inside the overscan-safe area. */
+/**
+ * 10-foot sizes. The pill sits in the header band root screens keep free when their built-in headers are hidden
+ * (Settings reserves 68dp, Library/Discover a transparent title row), about where the modern sidebar's floating
+ * pill sits, so it ends at 56dp and needs no content inset.
+ */
 internal object PillNavTokens {
-    val barHeight = 52.dp
-    val barTopGap = 22.dp
+    val barHeight = 44.dp
+    val barTopGap = 12.dp
     val barSideMargin = 48.dp
-    val innerPadding = 5.dp
-    val itemHorizontalPadding = 20.dp
-    val actionsGap = 14.dp
-    val iconItemSize = 42.dp
-    val iconSize = 24.dp
-    val avatarSize = 34.dp
-    val labelSize = 18.sp
+    val innerPadding = 4.dp
+    val itemHorizontalPadding = 18.dp
+    val actionsGap = 12.dp
+    val iconItemSize = 36.dp
+    val iconSize = 22.dp
+    val avatarSize = 30.dp
+    val labelSize = 17.sp
     const val unselectedAlpha = 0.72f
-    const val focusedScale = 1.1f
-
-    /** Top padding root screens other than Home need so they start below the pill (Home draws under it). */
-    val contentTopPadding: Dp = barTopGap + barHeight + 8.dp
+    const val focusedScale = 1.08f
 }
 
+// Frosted glass without a live blur: a dense tinted fill with a lighter top sheen reads as frost over any
+// backdrop and costs one cached gradient draw, where a blur would re-render the whole screen every frame.
 private val GlassBaseColor = Color(0xFF1C1C1E)
 private val GlassFocusedColor = Color(0xFF2C2C30)
 
@@ -141,24 +140,32 @@ internal fun PillNavigationBar(
     selectedKey: String?,
     state: PillNavBarState,
     requesterFor: (String) -> FocusRequester,
-    hazeState: HazeState?,
+    frosted: Boolean,
+    interactive: Boolean,
     hidden: Boolean,
+    canLeaveUp: Boolean,
     isRtl: Boolean,
     activeProfileColorHex: String,
     activeProfileAvatarImageUrl: String?,
     onEntryClick: (PillNavEntry) -> Unit,
     onExitDown: () -> Unit,
+    onExitUp: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val barFocused = state.hasFocus
+    val hideTarget = if (hidden && !barFocused) 1f else 0f
+    // Read only inside graphicsLayer below, so hiding and showing redraw the layer without recomposing or relayout.
     val hideFraction = animateFloatAsState(
-        targetValue = if (hidden && !barFocused) 1f else 0f,
-        animationSpec = spring(dampingRatio = 0.9f, stiffness = 320f),
+        targetValue = hideTarget,
+        animationSpec = if (hideTarget == 1f) {
+            tween(durationMillis = 240, easing = FastOutSlowInEasing)
+        } else {
+            tween(durationMillis = 320, easing = LinearOutSlowInEasing)
+        },
         label = "pill_nav_hide",
     )
-    val fullyHidden by remember { derivedStateOf { hideFraction.value > 0.99f } }
     val density = LocalDensity.current
-    val hideDistancePx = with(density) { (PillNavTokens.barTopGap + PillNavTokens.barHeight).toPx() }
+    val hideDistancePx = with(density) { (PillNavTokens.barTopGap + PillNavTokens.barHeight + 8.dp).toPx() }
 
     // Only the selected item is reachable by focus search from the content, so D-pad Up always lands on it.
     val entryKeyForEntry = selectedKey?.takeIf { key -> entries.any { it.key == key } } ?: entries.firstOrNull()?.key
@@ -175,11 +182,10 @@ internal fun PillNavigationBar(
     val showLens = lensTarget != null
 
     val accent = NuvioTheme.colors.Secondary
-    val blur = hazeState != null
     val glassColor by animateColorAsState(
         targetValue = when {
-            barFocused -> GlassFocusedColor.copy(alpha = if (blur) 0.76f else 0.95f)
-            else -> GlassBaseColor.copy(alpha = if (blur) 0.62f else 0.90f)
+            barFocused -> GlassFocusedColor.copy(alpha = if (frosted) 0.88f else 0.95f)
+            else -> GlassBaseColor.copy(alpha = if (frosted) 0.80f else 0.90f)
         },
         animationSpec = tween(NuvioMotion.tokens.durations.fast),
         label = "pill_nav_glass",
@@ -208,40 +214,38 @@ internal fun PillNavigationBar(
                 .graphicsLayer {
                     val h = hideFraction.value
                     translationY = -h * hideDistancePx
-                    alpha = 1f - h
-                    scaleX = 1f - 0.04f * h
-                    scaleY = 1f - 0.04f * h
+                    // Fade a little ahead of the slide so the pill is gone before it reaches the screen edge.
+                    alpha = (1f - 1.25f * h).coerceIn(0f, 1f)
+                    scaleX = 1f - 0.05f * h
+                    scaleY = 1f - 0.05f * h
                 }
-                .clip(shape)
-                .then(
-                    if (hazeState != null && !fullyHidden) {
-                        Modifier.hazeEffect(state = hazeState) {
-                            blurRadius = 24.dp
-                            noiseFactor = 0f
-                            inputScale = HazeInputScale.Fixed(0.66f)
-                        }
-                    } else {
-                        Modifier
-                    }
-                )
                 .background(glassColor, shape)
+                .then(if (frosted) Modifier.background(FrostSheen, shape) else Modifier)
                 .border(width = if (barFocused) 1.5.dp else 1.dp, brush = rimBrush, shape = shape),
         ) {
             Row(
                 modifier = Modifier
                     .fillMaxHeight()
                     .padding(PillNavTokens.innerPadding)
-                    .drawBehind {
-                        if (barFocused && selectedBounds != null && lensKey != selectedKey) {
-                            drawSelectedMarker(selectedBounds)
+                    .drawWithCache {
+                        // Lens brushes and stroke are built once per size/focus change, not on every animation frame.
+                        val lens = LensPaint.create(this, brighter = barFocused)
+                        onDrawBehind {
+                            if (barFocused && selectedBounds != null && lensKey != selectedKey) {
+                                drawSelectedMarker(selectedBounds)
+                            }
+                            if (showLens) drawLiquidIndicator(indicator, lens)
                         }
-                        if (showLens) drawLiquidIndicator(indicator, brighter = barFocused)
                     }
                     .onFocusChanged { state.hasFocus = it.hasFocus }
                     .onPreviewKeyEvent { event ->
                         if (event.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
                         when (event.key) {
-                            Key.DirectionUp -> true
+                            // Up leaves the pill only for the update banner above it; otherwise it stays put.
+                            Key.DirectionUp -> {
+                                if (canLeaveUp) onExitUp()
+                                true
+                            }
                             Key.DirectionDown -> {
                                 onExitDown()
                                 true
@@ -267,7 +271,7 @@ internal fun PillNavigationBar(
                     PillItem(
                         entry = entry,
                         selected = entry.key == selectedKey,
-                        focusable = barFocused || entry.key == entryKeyForEntry,
+                        focusable = interactive && (barFocused || entry.key == entryKeyForEntry),
                         requester = requesterFor(entry.key),
                         onFocused = { state.focusedKey = entry.key },
                         onClick = { onEntryClick(entry) },
@@ -411,42 +415,64 @@ private fun DrawScope.drawSelectedMarker(bounds: Pair<Float, Float>) {
     )
 }
 
-private fun DrawScope.drawLiquidIndicator(indicator: LiquidIndicator, brighter: Boolean) {
+/** Cached paint for the glass lens; gradients span the whole row height so they survive the in-flight squash. */
+private class LensPaint(val fill: Brush, val rim: Brush, val rimStroke: Stroke, val rimWidth: Float) {
+    companion object {
+        fun create(scope: androidx.compose.ui.draw.CacheDrawScope, brighter: Boolean): LensPaint {
+            val boost = if (brighter) 1.4f else 1f
+            val h = scope.size.height
+            val rimWidth = with(scope) { 1.dp.toPx() }
+            return LensPaint(
+                fill = Brush.verticalGradient(
+                    0f to Color.White.copy(alpha = 0.30f * boost),
+                    0.55f to Color.White.copy(alpha = 0.16f * boost),
+                    1f to Color.White.copy(alpha = 0.22f * boost),
+                    startY = 0f,
+                    endY = h,
+                ),
+                rim = Brush.verticalGradient(
+                    0f to Color.White.copy(alpha = (0.62f * boost).coerceAtMost(1f)),
+                    0.5f to Color.White.copy(alpha = 0.08f),
+                    1f to Color.White.copy(alpha = 0.28f * boost),
+                    startY = 0f,
+                    endY = h,
+                ),
+                rimStroke = Stroke(rimWidth),
+                rimWidth = rimWidth,
+            )
+        }
+    }
+}
+
+private fun DrawScope.drawLiquidIndicator(indicator: LiquidIndicator, paint: LensPaint) {
     if (!indicator.placed) return
-    val boost = if (brighter) 1.4f else 1f
     val stretch = indicator.stretch()
     val squash = 1f - 0.16f * stretch
     val height = size.height * squash
     val top = (size.height - height) / 2f
     val width = indicator.right.value - indicator.left.value
     if (width <= 0f) return
-    val topLeft = Offset(indicator.left.value, top)
-    val radius = CornerRadius(height / 2f)
+    val left = indicator.left.value
     // Glass lens: a bright top falling to a soft base, with a specular rim.
     drawRoundRect(
-        brush = Brush.verticalGradient(
-            0f to Color.White.copy(alpha = 0.30f * boost),
-            0.55f to Color.White.copy(alpha = 0.16f * boost),
-            1f to Color.White.copy(alpha = 0.22f * boost),
-            startY = top,
-            endY = top + height,
-        ),
-        topLeft = topLeft,
+        brush = paint.fill,
+        topLeft = Offset(left, top),
         size = Size(width, height),
-        cornerRadius = radius,
+        cornerRadius = CornerRadius(height / 2f),
     )
-    val rim = 1.dp.toPx()
+    val rim = paint.rimWidth
     drawRoundRect(
-        brush = Brush.verticalGradient(
-            0f to Color.White.copy(alpha = (0.62f * boost).coerceAtMost(1f)),
-            0.5f to Color.White.copy(alpha = 0.08f),
-            1f to Color.White.copy(alpha = 0.28f * boost),
-            startY = top,
-            endY = top + height,
-        ),
-        topLeft = Offset(topLeft.x + rim / 2f, top + rim / 2f),
+        brush = paint.rim,
+        topLeft = Offset(left + rim / 2f, top + rim / 2f),
         size = Size(width - rim, height - rim),
         cornerRadius = CornerRadius((height - rim) / 2f),
-        style = Stroke(rim),
+        style = paint.rimStroke,
     )
 }
+
+/** Static top sheen over the glass fill: the frosted look without sampling what is behind the pill. */
+private val FrostSheen = Brush.verticalGradient(
+    0f to Color.White.copy(alpha = 0.10f),
+    0.5f to Color.White.copy(alpha = 0.03f),
+    1f to Color.Transparent,
+)
