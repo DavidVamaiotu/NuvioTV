@@ -659,6 +659,8 @@ class NuvioMpvSurfaceView @JvmOverloads constructor(
         mpv.setOptionString("sub-ass-override", "no")
         mpv.setOptionString("sub-codepage", "auto:utf-8")
         mpv.setOptionString("sub-font", "Roboto")
+        // Nuvio RS hook: custom subtitle font (replaces Roboto when one is imported)
+        com.nuvio.tv.reshaped.subtitlefont.SubtitleFontStore.mpvOptions(context).forEach { (name, value) -> mpv.setOptionString(name, value) }
         mpv.setOptionString("sub-use-margins", "yes")
         mpv.setOptionString("sub-ass-force-margins", "yes")
         mpv.setOptionString(

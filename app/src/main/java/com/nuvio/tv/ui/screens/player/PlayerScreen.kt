@@ -1983,7 +1983,9 @@ private fun PlayerView.applySubtitleStyleIfNeeded(
         setFixedTextSize(android.util.TypedValue.COMPLEX_UNIT_SP, scaledFontSize)
         setApplyEmbeddedFontSizes(false)
 
-        val typeface = if (subtitleStyle.bold) {
+        // Nuvio RS hook: custom subtitle font (null = default system font)
+        val typeface = com.nuvio.tv.reshaped.subtitlefont.SubtitleFontStore.exoTypeface(context, subtitleStyle.bold)
+            ?: if (subtitleStyle.bold) {
             android.graphics.Typeface.DEFAULT_BOLD
         } else {
             android.graphics.Typeface.DEFAULT
