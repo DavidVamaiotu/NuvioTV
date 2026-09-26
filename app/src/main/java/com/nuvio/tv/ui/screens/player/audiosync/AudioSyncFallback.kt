@@ -249,7 +249,8 @@ internal class AudioSyncFallback private constructor(
             target.set(Target(url, cues, generation))
             appliedModel = null
             runtime._uiState.update { it.copy(selectedAddonSubtitle = subtitle, selectedSubtitleTrackIndex = -1) }
-            runtime.rememberAddonSubtitleSelection(subtitle)
+            // Saved only over a subtitle the user chose, as AutoSync does.
+            if (runtime.isUserExplicitSubtitleSelection) runtime.rememberAddonSubtitleSelection(subtitle)
             runtime.setSubtitleDelayMs(targetMs = 0, showOverlay = false)
             // The new session adopts the mapping the switch was decided with.
             controller.startSession(url, cues)

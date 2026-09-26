@@ -128,6 +128,9 @@ internal fun PlayerRuntimeController.maybeRunAutomaticSubtitleSync(
     automaticSubtitleSyncJob?.cancel()
 
     val sourceUrlAtStart = currentStreamUrl
+    // The user chose this subtitle (or it was restored from their choice), rather than Nuvio's
+    // automatic selection picking it.
+    val userChosenAtStart = isUserExplicitSubtitleSelection
     val sourceHeadersAtStart = currentHeaders.toMap()
     val selectedUrl = selectedSubtitle.url
     val candidatesAtStart = (_uiState.value.addonSubtitles + selectedSubtitle)
@@ -377,12 +380,14 @@ internal fun PlayerRuntimeController.maybeRunAutomaticSubtitleSync(
                         selectedSubtitleTrackIndex = -1,
                     )
                 }
-                // A secondary-language fallback is for this playback only: the next episode should
-                // still start from the first language, so the saved preference is left as it was.
+                // Only a subtitle the user chose is saved: saving an automatic pick would make the
+                // next playback restore an add-on subtitle over Nuvio's built-in track selection.
+                // A secondary-language fallback is never saved either, so the next episode still
+                // starts from the first language.
                 val switchedLanguage = selectedSubtitle.lang.isNotBlank() &&
                     chosenSubtitle.lang.isNotBlank() &&
                     !SubtitleLanguageMatching.matchesLanguageCode(chosenSubtitle.lang, selectedSubtitle.lang)
-                if (!switchedLanguage) {
+                if (userChosenAtStart && !switchedLanguage) {
                     rememberAddonSubtitleSelection(chosenSubtitle)
                 }
             }
