@@ -1,6 +1,6 @@
 name: AutoSync TV Release
 
-# Release trigger: audio subtitle sync as the AutoSync fallback
+# Release trigger: clearer Auto Sync messages, stable-to-beta install fix
 
 
 on:
@@ -326,7 +326,11 @@ jobs:
           AUTOSYNC_TAG: ${{ steps.version.outputs.tag }}
         run: |
           set -euo pipefail
-          AUTOSYNC_VERSION_CODE="$(date +%s)"
+          # Build time plus a fixed lead over the stable line (autosync-stable-release.yml stamps
+          # plain build time): this workflow always ships the newest Nuvio line, so its builds
+          # must outrank every stable build, or moving from stable to it is refused as a
+          # downgrade. Stays under Android's 2100000000 cap until 2033.
+          AUTOSYNC_VERSION_CODE="$(( $(date +%s) + 100000000 ))"
           export AUTOSYNC_VERSION_CODE AUTOSYNC_TAG
 
           python3 - <<'PY'

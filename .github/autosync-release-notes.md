@@ -3,3 +3,5 @@
 - **"Thorough Auto Sync Search"** is the new name for "Aggressive Auto Sync", with a description of what it does: it keeps looking for a closer match before settling. Only confident matches are ever applied, whether it is on or off.
 - **Auto Sync settings in your language.** The Auto Sync settings are now translated, and the new messages are translated into every language the app ships.
 - **ASS/SSA add-on subtitles styled correctly again.** Nuvio TV's check for ASS/SSA add-on subtitles works again, so their own styles are applied as intended.
+- **Your subtitle choice stays put.** If Auto Sync fails after you have picked a built-in subtitle or turned subtitles off, it no longer puts the add-on subtitle back.
+- **Moving from stable to beta installs again.** Beta builds now always carry a higher build number than stable ones, so switching to the beta channel no longer fails with "App not installed".
