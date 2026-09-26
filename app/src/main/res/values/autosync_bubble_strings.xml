@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="settings_autosync_bubble_toast">Bubble notifications</string>
-    <string name="settings_autosync_bubble_toast_description">Show AutoSync progress and results in an animated glass bubble at the bottom of the player instead of plain toasts</string>
+    <string name="settings_autosync_bubble_toast_description">Show AutoSync progress and results in a small animated frosted bubble at the bottom of the player instead of plain toasts</string>
 </resources>
