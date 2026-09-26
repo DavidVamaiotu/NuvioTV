@@ -4,9 +4,6 @@ package com.nuvio.tv.ui.screens.player.audiosync
 
 import android.content.Context
 import android.net.Uri
-import android.os.Handler
-import android.os.Looper
-import android.widget.Toast
 import androidx.media3.common.C
 import androidx.media3.common.Format
 import androidx.media3.common.Player
@@ -21,6 +18,8 @@ import com.nuvio.tv.ui.screens.player.PlayerPlaybackNetworking
 import com.nuvio.tv.ui.screens.player.PlayerRuntimeController
 import com.nuvio.tv.ui.screens.player.autosync.AutomaticSubtitleSync
 import com.nuvio.tv.ui.screens.player.autosync.AutoSyncSyncedSubtitle
+import com.nuvio.tv.ui.screens.player.autosync.bubble.AutoSyncBubbleKind
+import com.nuvio.tv.ui.screens.player.autosync.bubble.showAutoSyncMessage
 import com.nuvio.tv.ui.screens.player.commitPreparedSidecarSubtitle
 import com.nuvio.tv.ui.screens.player.currentSidecarGenerationFor
 import com.nuvio.tv.ui.screens.player.parseSidecarTimedCuesRobust
@@ -270,14 +269,13 @@ internal class AudioSyncFallback private constructor(
 
     private fun toast(status: AudioSyncStatus) {
         val message = status.message(appContext) ?: return
-        mainHandler.post { Toast.makeText(appContext, message, Toast.LENGTH_SHORT).show() }
+        showAutoSyncMessage(appContext, status.bubbleKind(), message) // Nuvio RS hook: AutoSync bubble
     }
 
     companion object {
         private const val TICK_MS = 250L
         private const val CUES_WAIT_MS = 5_000L
         private const val CUES_POLL_MS = 50L
-        private val mainHandler = Handler(Looper.getMainLooper())
         private val initialized = AtomicBoolean(false)
         private val fallbacks = WeakHashMap<PlayerRuntimeController, AudioSyncFallback>()
 
@@ -387,6 +385,13 @@ internal object AudioSyncTaps {
             active?.onPlaybackPcm(mono, frames, sampleRate, mediaTimeUs)
         }
     })
+}
+
+/** How the AutoSync bubble shows [this]: the audio sync is still at it, done, or gave up. */
+private fun AudioSyncStatus.bubbleKind(): AutoSyncBubbleKind = when (this) {
+    is AudioSyncStatus.Synced, is AudioSyncStatus.Adjusted -> AutoSyncBubbleKind.Success
+    AudioSyncStatus.Withdrawn -> AutoSyncBubbleKind.Failure
+    else -> AutoSyncBubbleKind.Working
 }
 
 private fun AudioSyncStatus.message(context: Context): String? = when (this) {
