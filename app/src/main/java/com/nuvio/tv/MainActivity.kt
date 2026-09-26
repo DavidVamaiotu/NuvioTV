@@ -1125,7 +1125,16 @@ open class MainActivity : ComponentActivity() {
                             hasSelectedProfileThisSession = false
                         }
                         Box(modifier = Modifier.fillMaxSize()) {
-                            if (modernSidebarEnabled) {
+                            // Nuvio RS hook: optional top pill menu replaces the sidebar
+                            if (com.nuvio.tv.ui.reshaped.pillnav.rememberPillNavEnabled()) {
+                                com.nuvio.tv.ui.reshaped.pillnav.PillNavScaffold(
+                                    longPressBackHeld = longPressBackHeld, navController = navController, startDestination = startDestination,
+                                    currentRoute = currentRoute, rootRoutes = rootRoutes, drawerItems = drawerItems, selectedDrawerRoute = selectedDrawerRoute,
+                                    blurEnabled = modernSidebarBlurEnabled, activeProfileName = activeProfile?.name ?: "",
+                                    activeProfileColorHex = activeProfile?.avatarColorHex ?: "#1E88E5", activeProfileAvatarImageUrl = activeProfileAvatarImageUrl,
+                                    showProfileSelector = profiles.size > 1, onSwitchProfile = handleSwitchProfile, onNavigate = { optimisticRoute = it }, onExitApp = handleExitApp
+                                )
+                            } else if (modernSidebarEnabled) {
                                 ModernSidebarScaffold(
                                     longPressBackHeld = longPressBackHeld,
                                     navController = navController,

@@ -46,5 +46,6 @@ internal fun NuvioReshapedSettingsContent(
         )
         seekrKeySettingsItems()
         connectionSpeedSettingsItems()
+        pillNavSettingsItems()
     }
 }
