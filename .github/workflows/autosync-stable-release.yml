@@ -256,7 +256,7 @@ jobs:
           gh release create "$AUTOSYNC_TAG" "${APKS[@]}" \
             --repo "$GITHUB_REPOSITORY" \
             --target "$(git rev-parse HEAD)" \
-            --title "$AUTOSYNC_TAG" \
+            --title "Nuvio Reshaped ${AUTOSYNC_TAG%-autosync.*} (build ${AUTOSYNC_TAG##*-autosync.})" \
             --notes-file release-notes.md \
             --latest=false
 

@@ -177,7 +177,7 @@ jobs:
           set -euo pipefail
 
           {
-            echo "## AutoSync TV changelog"
+            echo "## Nuvio Reshaped TV changelog"
             echo
             # Hand-written highlights, shown only when the notes file changed since the last
             # release so old notes never repeat.
@@ -421,7 +421,7 @@ jobs:
             "${APKS[@]}"
             --repo "$GITHUB_REPOSITORY"
             --target "$(git rev-parse HEAD)"
-            --title "$AUTOSYNC_TAG"
+            --title "Nuvio Reshaped ${AUTOSYNC_TAG%-autosync.*} (build ${AUTOSYNC_TAG##*-autosync.})"
             --notes-file autosync-tv-release-notes.md
           )
 
