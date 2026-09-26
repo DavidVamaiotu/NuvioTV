@@ -314,6 +314,11 @@ internal class AudioSyncFallback private constructor(
             synchronized(fallbacks) { fallbacks.remove(runtime) }?.release()
         }
 
+        /** Stops listening and any session, keeping the fallback for this player's next run. */
+        fun stop(runtime: PlayerRuntimeController) {
+            synchronized(fallbacks) { fallbacks[runtime] }?.stop()
+        }
+
         private fun isLoopback(url: String): Boolean = runCatching {
             val host = Uri.parse(url).host.orEmpty().lowercase()
             host == "localhost" || host == "127.0.0.1" || host == "::1" || host == "[::1]"

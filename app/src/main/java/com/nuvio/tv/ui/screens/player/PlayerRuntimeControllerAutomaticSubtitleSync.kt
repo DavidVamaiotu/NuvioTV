@@ -77,6 +77,13 @@ internal fun PlayerRuntimeController.cancelAutomaticSubtitleSync() {
     AudioSyncFallback.release(this)
 }
 
+/** The user left the add-on subtitle: stop working on it, keeping the audio sync for later. */
+internal fun PlayerRuntimeController.stopAutomaticSubtitleSync() {
+    automaticSubtitleSyncJob?.cancel()
+    automaticSubtitleSyncJob = null
+    AudioSyncFallback.stop(this)
+}
+
 internal fun PlayerRuntimeController.maybeRunAutomaticSubtitleSync(
     selectedSubtitle: Subtitle,
     candidateScope: AutoSyncCandidateScope = AutoSyncCandidateScope.STARTUP_SEARCH,
@@ -152,6 +159,12 @@ internal fun PlayerRuntimeController.maybeRunAutomaticSubtitleSync(
             }
             selectedBodyDeferred.complete(body)
         }
+        // The user can switch to a built-in track, turn subtitles off or open another stream while
+        // this runs; the fallbacks below must then leave their choice alone.
+        fun stillRelevant(): Boolean =
+            currentStreamUrl == sourceUrlAtStart &&
+                _uiState.value.selectedAddonSubtitle?.url == selectedUrl
+
         try {
             Log.d(
                 PlayerRuntimeController.TAG,
@@ -197,6 +210,11 @@ internal fun PlayerRuntimeController.maybeRunAutomaticSubtitleSync(
             )
 
             if (resolved == null) {
+                if (!stillRelevant()) {
+                    audioFallback?.disarm()
+                    AutoSyncDebugLog.finishAndCopy(context, "REJECT V2 - user left the subtitle")
+                    return@launch
+                }
                 if (activeSidecarSubtitleKey == null) {
                     startSidecarAddonSubtitle(selectedSubtitle)
                 }
@@ -279,6 +297,10 @@ internal fun PlayerRuntimeController.maybeRunAutomaticSubtitleSync(
             }
 
             if (!applied) {
+                if (!stillRelevant()) {
+                    AutoSyncDebugLog.finishAndCopy(context, "REJECT V2 - user left the subtitle")
+                    return@launch
+                }
                 if (activeSidecarSubtitleKey == null) {
                     startSidecarAddonSubtitle(selectedSubtitle)
                 }
@@ -336,6 +358,7 @@ internal fun PlayerRuntimeController.maybeRunAutomaticSubtitleSync(
             AutoSyncDebugLog.error(error) { "TV bridge failed" }
             audioFallback?.disarm()
             AutoSyncDebugLog.finishAndCopy(context, "failed")
+            if (!stillRelevant()) return@launch
             if (activeSidecarSubtitleKey == null) {
                 startSidecarAddonSubtitle(selectedSubtitle)
             }
