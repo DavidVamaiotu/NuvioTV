@@ -16,11 +16,13 @@ import com.nuvio.tv.ui.screens.player.autosync.AutoSyncSubtitleCandidate
 import com.nuvio.tv.ui.screens.player.autosync.AutoSyncSyncedSubtitle
 import com.nuvio.tv.ui.screens.player.autosync.AutomaticSubtitleSync
 import com.nuvio.tv.ui.screens.player.autosync.EmbeddedSubtitleTimelineLoader
+import com.nuvio.tv.ui.screens.player.autosync.SubtitleLanguageMatching
 import com.nuvio.tv.ui.screens.player.autosync.applyAutoSyncSidecarTimeline
 import com.nuvio.tv.ui.screens.player.autosync.bubble.AutoSyncBubbleKind
 import com.nuvio.tv.ui.screens.player.autosync.bubble.showAutoSyncMessage
 import com.nuvio.tv.ui.screens.player.autosync.maxAlignmentShiftMs
 import com.nuvio.tv.ui.screens.player.autosync.replaceAutoSyncSidecarSubtitle
+import com.nuvio.tv.ui.screens.player.autosync.secondaryLanguageSearchSeed
 import com.nuvio.tv.ui.screens.player.audiosync.AudioSyncFallback
 import com.nuvio.tv.ui.screens.player.audiosync.AudioSyncTaps
 import com.nuvio.tv.ui.screens.player.seekpreview.local.LocalPreviewSources
@@ -182,7 +184,7 @@ internal fun PlayerRuntimeController.maybeRunAutomaticSubtitleSync(
                     "lang=${selectedSubtitle.lang} candidates=${candidatesAtStart.size}",
             )
             var analysisOutcome: AutoSyncAnalysisOutcome? = null
-            val resolved = AutomaticSubtitleSync.findTimelineRetime(
+            var searchResult = AutomaticSubtitleSync.findTimelineRetime(
                 sourceKey = sourceUrlAtStart,
                 sourceHeaders = sourceHeadersAtStart,
                 selectedSubtitleUrl = selectedUrl,
@@ -218,6 +220,48 @@ internal fun PlayerRuntimeController.maybeRunAutomaticSubtitleSync(
                 onReferenceReady = {},
                 onAnalysisOutcome = { outcome -> analysisOutcome = outcome },
             )
+
+            // No match in the first language: search the secondary subtitle language before the
+            // audio fallback. Only at startup, only when a subtitle could still match (not when
+            // there is no reference), and never over a subtitle the user picked themselves.
+            val secondarySeed =
+                if (
+                    searchResult == null &&
+                    candidateScope == AutoSyncCandidateScope.STARTUP_SEARCH &&
+                    (
+                        analysisOutcome == null ||
+                            analysisOutcome == AutoSyncAnalysisOutcome.SUBTITLE_UNAVAILABLE
+                        ) &&
+                    stillRelevant()
+                ) {
+                    secondaryLanguageSearchSeed(
+                        candidates = candidatesAtStart.map { it.toAutoSyncCandidate() },
+                        selectedUrl = selectedUrl,
+                        searchedLanguage = selectedSubtitle.lang,
+                        secondaryLanguage = _uiState.value.subtitleStyle.secondaryPreferredLanguage,
+                    )
+                } else {
+                    null
+                }
+            if (secondarySeed != null) {
+                searchResult = AutomaticSubtitleSync.findTimelineRetime(
+                    sourceKey = sourceUrlAtStart,
+                    sourceHeaders = sourceHeadersAtStart,
+                    selectedSubtitleUrl = secondarySeed.url,
+                    selectedSubtitleHeaders = candidateByUrl[secondarySeed.url]?.headers.orEmpty(),
+                    preferredLanguage = secondarySeed.language,
+                    alternativeSubtitles = candidatesAtStart.map { it.toAutoSyncCandidate() },
+                    alternativeSubtitlesProvider = {
+                        _uiState.value.addonSubtitles.map { it.toAutoSyncCandidate() }
+                    },
+                    continueDebugSession = true,
+                )
+                val matched = searchResult != null
+                AutoSyncDebugLog.info {
+                    "secondaryLanguage=${secondarySeed.language} matched=$matched"
+                }
+            }
+            val resolved = searchResult
 
             if (resolved == null) {
                 if (!stillRelevant()) {
@@ -330,7 +374,14 @@ internal fun PlayerRuntimeController.maybeRunAutomaticSubtitleSync(
                         selectedSubtitleTrackIndex = -1,
                     )
                 }
-                rememberAddonSubtitleSelection(chosenSubtitle)
+                // A secondary-language fallback is for this playback only: the next episode should
+                // still start from the first language, so the saved preference is left as it was.
+                val switchedLanguage = selectedSubtitle.lang.isNotBlank() &&
+                    chosenSubtitle.lang.isNotBlank() &&
+                    !SubtitleLanguageMatching.matchesLanguageCode(chosenSubtitle.lang, selectedSubtitle.lang)
+                if (!switchedLanguage) {
+                    rememberAddonSubtitleSelection(chosenSubtitle)
+                }
             }
             setSubtitleDelayMs(targetMs = 0, showOverlay = false)
             AutoSyncSyncedSubtitle.mark(chosenSubtitle.url)
@@ -380,6 +431,13 @@ internal fun PlayerRuntimeController.maybeRunAutomaticSubtitleSync(
         job.invokeOnCompletion { selectedBodyDeferred.complete(null) }
     }
 }
+
+private fun Subtitle.toAutoSyncCandidate(): AutoSyncSubtitleCandidate =
+    AutoSyncSubtitleCandidate(
+        url = url,
+        language = lang,
+        name = addonName.ifBlank { id },
+    )
 
 /** Why AutoSync kept the original timing, in the fewest words that still help the viewer. */
 private fun Context.buildAutoSyncFailureToast(analysisOutcome: AutoSyncAnalysisOutcome?): String =
