@@ -24,6 +24,7 @@ import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.transformLatest
 import tv.seekr.previews.android.Seekr
 import tv.seekr.previews.android.SeekrTrack
+import kotlin.math.abs
 
 /**
  * Seek-preview (Seekr) state for one player session: the loaded track, the cue behind the
@@ -91,13 +92,16 @@ class SeekPreviewState internal constructor(
     /**
      * On-device thumbnails for the stream this player shows with ExoPlayer, while "Generate
      * previews on device" is on. Opened when the stream registers and its duration is known,
-     * closed (and saved to the disk cache) when either changes or the player goes away.
+     * closed (and saved to the disk cache) when either changes or the player goes away. The
+     * duration of some streams is refined while they play: a change of a second or less keeps
+     * the open track rather than tearing it down mid-playback.
      */
     @OptIn(ExperimentalCoroutinesApi::class)
     private val localTrack: StateFlow<SeekPreviewTrack?> =
         combine(
             // Live windows have no fixed timeline to hang thumbnails on.
-            controller.playbackTimeline.map { if (it.isLive) 0L else it.duration }.distinctUntilChanged(),
+            controller.playbackTimeline.map { if (it.isLive) 0L else it.duration }
+                .distinctUntilChanged { old, new -> (old > 0L) == (new > 0L) && abs(old - new) <= 1_000L },
             LocalSeekPreviewSettings.enabled(controller.context),
             LocalPreviewSources.sourceFor(controller)
         ) { durationMs, enabled, source ->
