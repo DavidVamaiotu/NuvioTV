@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="settings_seek_buffer_title">Seek buffer: %1$s</string>
+    <string name="settings_seek_buffer_default">Nuvio default</string>
+    <string name="settings_seek_buffer_value_mb">%1$d MB</string>
+    <string name="settings_seek_buffer_value_gb">%1$d GB</string>
+    <string name="settings_seek_buffer_description">Loads what comes next ahead of playback, so jumps inside it are instant. ExoPlayer uses a temporary file, libmpv memory, capped to what this device has free; nothing already watched is kept. Select to change; applies from the next playback.</string>
+</resources>

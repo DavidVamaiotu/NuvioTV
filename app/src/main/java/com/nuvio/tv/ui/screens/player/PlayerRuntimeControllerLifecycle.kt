@@ -76,6 +76,7 @@ internal fun PlayerRuntimeController.releasePlayer(flushPlaybackState: Boolean) 
         runCatching { player.release() }
     }
     _exoPlayer = null
+    com.nuvio.tv.ui.screens.player.seekbuffer.SeekReadAhead.release() // Nuvio RS hook: delete the read-ahead file
     _loadControl = null
     currentBitrateAwareLoadControl = null
     currentParallelChunkOverheadMb = 0

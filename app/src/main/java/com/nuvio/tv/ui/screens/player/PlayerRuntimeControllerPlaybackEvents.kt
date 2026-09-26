@@ -290,11 +290,11 @@ internal fun PlayerRuntimeController.startProgressUpdates() {
                 publishPlaybackTimeline(
                     currentPosition = displayPosition,
                     duration = playerDuration.coerceAtLeast(0L),
-                    bufferedPosition = player.bufferedPosition.coerceAtLeast(displayPosition),
+                    bufferedPosition = com.nuvio.tv.ui.screens.player.seekbuffer.SeekReadAhead.bufferedPositionMs(player.bufferedPosition, playerDuration).coerceAtLeast(displayPosition), // Nuvio RS hook: read-ahead on the seek bar
                     playerReportsLive = player.isCurrentMediaItemLive,
                     isPlaying = player.isPlaying
                 )
-                PlaybackThroughput.onExoTick(context, currentStreamUrl, player.isLoading)
+                PlaybackThroughput.onExoTick(context, currentStreamUrl, com.nuvio.tv.ui.screens.player.seekbuffer.SeekReadAhead.isDownloading() ?: player.isLoading) // Nuvio RS hook: read-ahead's connection
                 playbackAnalyticsDiagnostics.recordProgressSnapshot(
                     player = player,
                     hasRenderedFirstFrame = hasRenderedFirstFrame,
