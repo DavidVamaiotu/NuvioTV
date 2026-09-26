@@ -145,44 +145,26 @@ jobs:
             echo "NUVIO_RELEASE_KEY_PASSWORD=$KEY_PASSWORD"
           } >> "$GITHUB_ENV"
 
-      - name: Stamp installable test release version
-        if: github.event_name == 'push' && contains(github.event.head_commit.message, '[build arm32 release]')
-        run: |
-          python3 - <<'PY'
-          import re
-          import time
-          from pathlib import Path
-          path = Path("app/build.gradle.kts")
-          source = path.read_text()
-          code = int(time.time()) + 100000000
-          source, n1 = re.subn(r'versionCode\s*=\s*[0-9]+', f'versionCode = {code}', source, count=1)
-          source, n2 = re.subn(r'versionName\s*=\s*"[^"]+"', 'versionName = "1.1.0-beta.2-autosync.arm32-test"', source, count=1)
-          if n1 != 1 or n2 != 1:
-              raise SystemExit("Could not stamp release version")
-          path.write_text(source)
-          print(f"Test release versionCode: {code}")
-          PY
-
       - name: Fast Kotlin compile check
         run: |
           ./gradlew \
-            :app:compileFullReleaseKotlin \
+            :app:compileFullDebugKotlin \
             --build-cache \
             --stacktrace
 
       - name: Build installable APK
-        if: github.event_name == 'push' && contains(github.event.head_commit.message, '[build arm32 release]')
+        if: github.event_name == 'workflow_dispatch' && inputs.build_apk
         run: |
           ./gradlew \
-            :app:assembleFullRelease \
+            :app:assembleFullDebug \
             --build-cache \
             --stacktrace
 
-      - name: Verify and upload arm32 release APK
-        if: github.event_name == 'push' && contains(github.event.head_commit.message, '[build arm32 release]')
+      - name: Upload universal APK
+        if: github.event_name == 'workflow_dispatch' && inputs.build_apk
         uses: actions/upload-artifact@v4
         with:
-          name: NuvioTV-Reshaped-arm32-release-test
-          path: app/build/outputs/apk/full/release/app-full-armeabi-v7a-release.apk
+          name: NuvioTV-AutoSync-debug
+          path: app/build/outputs/apk/full/debug/app-full-universal-debug.apk
           if-no-files-found: error
           retention-days: 7
