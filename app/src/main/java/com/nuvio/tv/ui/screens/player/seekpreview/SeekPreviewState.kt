@@ -5,8 +5,13 @@ import com.nuvio.tv.ui.screens.player.PlayerRuntimeController
 import com.nuvio.tv.ui.screens.player.currentPlaybackDurationMs
 import com.nuvio.tv.ui.screens.player.currentPlaybackPositionMs
 import com.nuvio.tv.ui.screens.player.hideControls
+import com.nuvio.tv.ui.screens.player.seekpreview.local.LocalPreviewSource
+import com.nuvio.tv.ui.screens.player.seekpreview.local.LocalPreviewSources
+import com.nuvio.tv.ui.screens.player.seekpreview.local.LocalSeekPreviewSettings
+import com.nuvio.tv.ui.screens.player.seekpreview.local.localSeekPreviewCacheKey
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.awaitCancellation
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -16,6 +21,7 @@ import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.mapLatest
 import kotlinx.coroutines.flow.stateIn
+import kotlinx.coroutines.flow.transformLatest
 import tv.seekr.previews.android.Seekr
 import tv.seekr.previews.android.SeekrTrack
 
@@ -25,7 +31,8 @@ import tv.seekr.previews.android.SeekrTrack
  *
  * Holds what the seek-preview fork (AKhalil609/NuvioTV) keeps in PlayerUiState, PlayerViewModel
  * and the runtime controller's events, so upstream player state stays untouched. The key is the
- * user's own (SeekrKeyPreferences), else BuildConfig.SEEKR_API_KEY; without one, nothing loads.
+ * user's own (SeekrKeyPreferences), else BuildConfig.SEEKR_API_KEY; without one, no Seekr track
+ * loads. On-device previews (see the `local` package) work with or without it.
  */
 class SeekPreviewState internal constructor(
     scope: CoroutineScope,
@@ -52,6 +59,10 @@ class SeekPreviewState internal constructor(
     val showSyncOverlay: StateFlow<Boolean> = _showSyncOverlay.asStateFlow()
     val isSyncOverlayOpen: Boolean get() = _showSyncOverlay.value
 
+    /**
+     * The Seekr track alone. Preview Sync only exists for it: on-device frames always line up.
+     * The preview itself reads [previewTrack].
+     */
     @OptIn(ExperimentalCoroutinesApi::class)
     val track: StateFlow<SeekrTrack?> =
         controller.playbackTimeline
@@ -76,6 +87,61 @@ class SeekPreviewState internal constructor(
                     ?.also { track -> track.prefetchSheets() }
             }
             .stateIn(scope, SharingStarted.Eagerly, null)
+
+    /**
+     * On-device thumbnails for the stream this player shows with ExoPlayer, while "Generate
+     * previews on device" is on. Opened when the stream registers and its duration is known,
+     * closed (and saved to the disk cache) when either changes or the player goes away.
+     */
+    @OptIn(ExperimentalCoroutinesApi::class)
+    private val localTrack: StateFlow<SeekPreviewTrack?> =
+        combine(
+            // Live windows have no fixed timeline to hang thumbnails on.
+            controller.playbackTimeline.map { if (it.isLive) 0L else it.duration }.distinctUntilChanged(),
+            LocalSeekPreviewSettings.enabled(controller.context),
+            LocalPreviewSources.sourceFor(controller)
+        ) { durationMs, enabled, source ->
+            Triple(durationMs, enabled, source)
+        }
+            .distinctUntilChanged()
+            .transformLatest<Triple<Long, Boolean, LocalPreviewSource?>, SeekPreviewTrack?> { (durationMs, enabled, source) ->
+                if (!enabled || source == null || durationMs <= 0L) {
+                    emit(null)
+                    return@transformLatest
+                }
+                val cacheKey = localSeekPreviewCacheKey(
+                    contentId = controller.contentId,
+                    season = controller.currentSeason,
+                    episode = controller.currentEpisode,
+                    durationMs = durationMs
+                )
+                val opened = LocalPreviewSources.open(source, cacheKey, durationMs)
+                if (opened == null) {
+                    emit(null)
+                    return@transformLatest
+                }
+                try {
+                    emit(opened)
+                    awaitCancellation()
+                } finally {
+                    LocalPreviewSources.close(source, opened)
+                }
+            }
+            .stateIn(scope, SharingStarted.Eagerly, null)
+
+    /**
+     * What the preview shows: on-device frames where playback has been, Seekr elsewhere (see
+     * [HybridSeekPreviewTrack]); either alone when the other is unavailable.
+     */
+    val previewTrack: StateFlow<SeekPreviewTrack?> =
+        combine(localTrack, track) { local, seekr ->
+            when {
+                local != null && seekr != null -> HybridSeekPreviewTrack(local, SeekrPreviewTrack(seekr))
+                local != null -> local
+                seekr != null -> SeekrPreviewTrack(seekr)
+                else -> null
+            }
+        }.stateIn(scope, SharingStarted.Eagerly, null)
 
     /**
      * The duration gap between the playing release and the preview source, offered as a
@@ -105,7 +171,7 @@ class SeekPreviewState internal constructor(
      * Every other event, and every step without a resolved cue, passes through unchanged.
      */
     internal fun intercept(event: PlayerEvent): PlayerEvent {
-        if (event !is PlayerEvent.OnPreviewSeekBy || track.value == null) return event
+        if (event !is PlayerEvent.OnPreviewSeekBy || previewTrack.value == null) return event
         if (controller.playbackTimeline.value.isLive) return event
         val maxDuration = controller.currentPlaybackDurationMs().takeIf { it >= 0 } ?: Long.MAX_VALUE
         val basePosition = controller.pendingPreviewSeekPosition

@@ -23,6 +23,7 @@ import com.nuvio.tv.ui.screens.player.autosync.maxAlignmentShiftMs
 import com.nuvio.tv.ui.screens.player.autosync.replaceAutoSyncSidecarSubtitle
 import com.nuvio.tv.ui.screens.player.audiosync.AudioSyncFallback
 import com.nuvio.tv.ui.screens.player.audiosync.AudioSyncTaps
+import com.nuvio.tv.ui.screens.player.seekpreview.local.LocalPreviewSources
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.launch
@@ -49,7 +50,14 @@ internal fun PlayerRuntimeController.autoSyncExtractorsFactory(
     headers: Map<String, String>,
 ): ExtractorsFactory {
     // Audio is copied too, for the audio sync fallback (idle unless it is listening).
-    val factory = AutoSyncExtractorsFactory(delegate = AudioSyncTaps.wrapExtractors(delegate, url), sourceKey = url)
+    // Video keyframes are copied too, for on-device seek previews (idle once all are made).
+    val tapped = LocalPreviewSources.register(
+        owner = this,
+        context = context,
+        sourceKey = url,
+        factory = AudioSyncTaps.wrapExtractors(delegate, url),
+    )
+    val factory = AutoSyncExtractorsFactory(delegate = tapped, sourceKey = url)
     prefetchAutoSyncIndex(url, headers)
     return factory
 }
