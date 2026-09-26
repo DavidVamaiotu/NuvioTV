@@ -145,6 +145,12 @@ internal fun PlayerRuntimeController.maybeRunAutomaticSubtitleSync(
             }
             selectedBodyDeferred.complete(body)
         }
+        // The user can switch to a built-in track, turn subtitles off or open another stream while
+        // this runs; the fallbacks below must then leave their choice alone.
+        fun stillRelevant(): Boolean =
+            currentStreamUrl == sourceUrlAtStart &&
+                _uiState.value.selectedAddonSubtitle?.url == selectedUrl
+
         try {
             Log.d(
                 PlayerRuntimeController.TAG,
@@ -190,6 +196,7 @@ internal fun PlayerRuntimeController.maybeRunAutomaticSubtitleSync(
             )
 
             if (resolved == null) {
+                if (!stillRelevant()) return@launch
                 if (activeSidecarSubtitleKey == null) {
                     startSidecarAddonSubtitle(selectedSubtitle)
                 }
@@ -252,6 +259,7 @@ internal fun PlayerRuntimeController.maybeRunAutomaticSubtitleSync(
             }
 
             if (!applied) {
+                if (!stillRelevant()) return@launch
                 if (activeSidecarSubtitleKey == null) {
                     startSidecarAddonSubtitle(selectedSubtitle)
                 }
@@ -284,6 +292,7 @@ internal fun PlayerRuntimeController.maybeRunAutomaticSubtitleSync(
             throw cancel
         } catch (error: Throwable) {
             Log.w(PlayerRuntimeController.TAG, "AUTO_SYNC_V2 failed", error)
+            if (!stillRelevant()) return@launch
             if (activeSidecarSubtitleKey == null) {
                 startSidecarAddonSubtitle(selectedSubtitle)
             }
