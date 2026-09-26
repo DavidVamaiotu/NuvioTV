@@ -170,14 +170,23 @@ internal object AutomaticSubtitleSync {
         onNoSubtitleTracks: () -> Unit = {},
         onAnalysisOutcome: ((AutoSyncAnalysisOutcome) -> Unit)? = null,
         sourceHeaders: Map<String, String> = emptyMap(),
+        /** A follow-up search in another language: log into the current debug session. */
+        continueDebugSession: Boolean = false,
     ): AutoSyncResolvedTimeline? {
         Unit
         val aggressiveMode = AutoSyncPreferences.aggressiveMode.value
 
-        AutoSyncDebugLog.start(
-            sourceKey = sourceKey,
-            subtitleUrl = selectedSubtitleUrl,
-        )
+        if (continueDebugSession) {
+            AutoSyncDebugLog.section { "SECONDARY LANGUAGE SEARCH" }
+            AutoSyncDebugLog.info {
+                "language=${preferredLanguage ?: "<none>"} seed=$selectedSubtitleUrl"
+            }
+        } else {
+            AutoSyncDebugLog.start(
+                sourceKey = sourceKey,
+                subtitleUrl = selectedSubtitleUrl,
+            )
+        }
         AutoSyncDebugLog.info {
             "mode=${if (aggressiveMode) "AGGRESSIVE" else "PASSIVE"}"
         }
