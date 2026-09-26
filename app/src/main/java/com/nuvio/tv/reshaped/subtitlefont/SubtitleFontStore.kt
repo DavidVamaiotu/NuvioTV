@@ -4,10 +4,14 @@ import android.content.Context
 import android.graphics.Typeface
 import android.net.Uri
 import android.util.Log
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
 import okhttp3.Request
@@ -16,6 +20,8 @@ import java.io.IOException
 import java.io.InputStream
 import java.io.RandomAccessFile
 import java.util.concurrent.TimeUnit
+import kotlin.coroutines.CoroutineContext
+import kotlin.coroutines.EmptyCoroutineContext
 
 internal class CustomSubtitleFont(
     val file: File,
@@ -49,10 +55,13 @@ internal object SubtitleFontStore {
     @Volatile
     private var loaded = false
 
+    private val warmUpScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+
     private val httpClient: OkHttpClient by lazy {
         OkHttpClient.Builder()
             .connectTimeout(15, TimeUnit.SECONDS)
             .readTimeout(30, TimeUnit.SECONDS)
+            .callTimeout(60, TimeUnit.SECONDS)
             .followRedirects(true)
             .followSslRedirects(true)
             .build()
@@ -66,8 +75,10 @@ internal object SubtitleFontStore {
         if (!loaded) {
             synchronized(this) {
                 if (!loaded) {
-                    val file = fontsDir(context).listFiles()
-                        ?.firstOrNull { it.isFile && !it.name.startsWith(".") }
+                    val files = fontsDir(context).listFiles().orEmpty()
+                    // Staging files left behind by an import that was killed mid-copy.
+                    files.filter { it.isFile && it.name.startsWith(STAGING_PREFIX) }.forEach { it.delete() }
+                    val file = files.firstOrNull { it.isFile && !it.name.startsWith(".") }
                     val font = file?.let(::loadFont)
                     if (file != null && font == null) {
                         // A font that no longer loads: drop it so playback uses the default font.
@@ -81,15 +92,34 @@ internal object SubtitleFontStore {
         return _font.value
     }
 
-    /** The ExoPlayer subtitle typeface, keeping the bold setting; null for the default font. */
+    /** At launch: loads the font off the main thread so playback never parses it there. */
+    fun warmUp(context: Context) {
+        if (loaded) return
+        val appContext = context.applicationContext
+        warmUpScope.launch { runCatching { current(appContext) } }
+    }
+
+    /** The font if already loaded; never touches disk (starts the load instead). */
+    private fun cached(context: Context): CustomSubtitleFont? {
+        if (!loaded) warmUp(context)
+        return _font.value
+    }
+
+    /**
+     * The ExoPlayer subtitle typeface, keeping the bold setting; null for the default font.
+     * Non-blocking: the player re-applies its style when [font] emits.
+     */
     fun exoTypeface(context: Context, bold: Boolean): Typeface? {
-        val custom = runCatching { current(context)?.typeface }.getOrNull() ?: return null
+        val custom = runCatching { cached(context)?.typeface }.getOrNull() ?: return null
         return if (bold) Typeface.create(custom, Typeface.BOLD) else custom
     }
 
-    /** libmpv options that make libass use the imported font; empty for the default font. */
+    /**
+     * libmpv options that make libass use the imported font; empty for the default font.
+     * Non-blocking: relies on [warmUp] having run at app start.
+     */
     fun mpvOptions(context: Context): List<Pair<String, String>> {
-        val custom = runCatching { current(context) }.getOrNull() ?: return emptyList()
+        val custom = runCatching { cached(context) }.getOrNull() ?: return emptyList()
         return listOf(
             "sub-fonts-dir" to fontsDir(context).path,
             "sub-font" to custom.familyName,
@@ -100,7 +130,7 @@ internal object SubtitleFontStore {
         withContext(Dispatchers.IO) {
             val input = runCatching { context.contentResolver.openInputStream(uri) }.getOrNull()
                 ?: return@withContext SubtitleFontImportResult.INVALID
-            input.use { importFromStream(context, it, declaredLength = null) }
+            input.use { importFromStream(context, it, declaredLength = null, coroutineContext = coroutineContext) }
         }
 
     suspend fun importFromUrl(context: Context, url: String): SubtitleFontImportResult =
@@ -111,14 +141,24 @@ internal object SubtitleFontStore {
             ) {
                 return@withContext SubtitleFontImportResult.DOWNLOAD_FAILED
             }
+            val callContext = coroutineContext
             try {
                 val request = Request.Builder().url(trimmed).get().build()
-                httpClient.newCall(request).execute().use { response ->
-                    if (!response.isSuccessful) return@withContext SubtitleFontImportResult.DOWNLOAD_FAILED
-                    val body = response.body ?: return@withContext SubtitleFontImportResult.DOWNLOAD_FAILED
-                    val length = body.contentLength()
-                    if (length > MAX_FONT_BYTES) return@withContext SubtitleFontImportResult.TOO_LARGE
-                    body.byteStream().use { importFromStream(context, it, declaredLength = null) }
+                val call = httpClient.newCall(request)
+                // Closing the dialog cancels the coroutine: abort the socket so nothing imports later.
+                val cancelHandle = callContext[kotlinx.coroutines.Job]?.invokeOnCompletion { call.cancel() }
+                try {
+                    call.execute().use { response ->
+                        if (!response.isSuccessful) return@withContext SubtitleFontImportResult.DOWNLOAD_FAILED
+                        val body = response.body ?: return@withContext SubtitleFontImportResult.DOWNLOAD_FAILED
+                        val length = body.contentLength()
+                        if (length > MAX_FONT_BYTES) return@withContext SubtitleFontImportResult.TOO_LARGE
+                        body.byteStream().use {
+                            importFromStream(context, it, declaredLength = null, coroutineContext = callContext)
+                        }
+                    }
+                } finally {
+                    cancelHandle?.dispose()
                 }
             } catch (error: IllegalArgumentException) {
                 Log.w(TAG, "Bad font URL", error)
@@ -137,6 +177,7 @@ internal object SubtitleFontStore {
         context: Context,
         input: InputStream,
         declaredLength: Long?,
+        coroutineContext: CoroutineContext = EmptyCoroutineContext,
     ): SubtitleFontImportResult {
         if (declaredLength != null && declaredLength > MAX_FONT_BYTES) {
             return SubtitleFontImportResult.TOO_LARGE
@@ -150,7 +191,7 @@ internal object SubtitleFontStore {
         }
         try {
             val copied = try {
-                copyLimited(input, staging, declaredLength)
+                copyLimited(input, staging, declaredLength, coroutineContext)
             } catch (error: IOException) {
                 Log.w(TAG, "Font copy failed", error)
                 return SubtitleFontImportResult.DOWNLOAD_FAILED
@@ -158,6 +199,7 @@ internal object SubtitleFontStore {
             if (copied == null) return SubtitleFontImportResult.TOO_LARGE
             val extension = fontExtension(staging) ?: return SubtitleFontImportResult.INVALID
             loadFont(staging) ?: return SubtitleFontImportResult.INVALID
+            coroutineContext.ensureActive()
             synchronized(this) {
                 dir.listFiles()
                     ?.filter { it.isFile && !it.name.startsWith(".") }
@@ -186,11 +228,17 @@ internal object SubtitleFontStore {
     }
 
     /** Copies at most [MAX_FONT_BYTES]; returns the byte count, or null when the file is too large. */
-    private fun copyLimited(input: InputStream, target: File, declaredLength: Long?): Long? {
+    private fun copyLimited(
+        input: InputStream,
+        target: File,
+        declaredLength: Long?,
+        coroutineContext: CoroutineContext,
+    ): Long? {
         var total = 0L
         target.outputStream().use { output ->
             val buffer = ByteArray(64 * 1024)
             while (declaredLength == null || total < declaredLength) {
+                coroutineContext.ensureActive()
                 val wanted = if (declaredLength == null) {
                     buffer.size
                 } else {

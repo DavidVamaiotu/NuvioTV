@@ -48,6 +48,9 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.tv.material3.Border
 import androidx.tv.material3.Button
@@ -110,7 +113,7 @@ private fun startSubtitleFontServer(
         ?: return SubtitleFontServerState(null, null, null, context.getString(R.string.error_network_required))
     val server = SubtitleFontUploadServer.startOnAvailablePort(context, onImported)
         ?: return SubtitleFontServerState(null, null, null, context.getString(R.string.error_server_ports_unavailable))
-    val url = "http://$ip:${server.listeningPort}"
+    val url = "http://$ip:${server.listeningPort}/${server.token}/"
     return SubtitleFontServerState(server, url, QrCodeGenerator.generate(url, 512), null)
 }
 
@@ -157,12 +160,35 @@ private fun SubtitleFontDialog(onDismiss: () -> Unit) {
         if (uri != null) runImport { SubtitleFontStore.importFromUri(context, uri) }
     }
 
-    // The phone upload page runs only while this dialog is open.
+    // The phone upload page runs only while this dialog is open and the app is in the foreground
+    // (a restart gets a new token, so a new QR code).
     var serverState by remember { mutableStateOf<SubtitleFontServerState?>(null) }
-    DisposableEffect(Unit) {
-        val started = startSubtitleFontServer(context) { result -> status.value = describe(result) }
-        serverState = started
-        onDispose { started.server?.stop() }
+    val lifecycleOwner = LocalLifecycleOwner.current
+    DisposableEffect(lifecycleOwner) {
+        var running: SubtitleFontUploadServer? = null
+        fun startServer() {
+            if (running != null) return
+            val started = startSubtitleFontServer(context) { result -> status.value = describe(result) }
+            running = started.server
+            serverState = started
+        }
+        fun stopServer() {
+            running?.stop()
+            running = null
+        }
+        val observer = LifecycleEventObserver { _, event ->
+            when (event) {
+                Lifecycle.Event.ON_START -> startServer()
+                Lifecycle.Event.ON_STOP -> stopServer()
+                else -> Unit
+            }
+        }
+        // Replays ON_START right away when the screen is already started.
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose {
+            lifecycleOwner.lifecycle.removeObserver(observer)
+            stopServer()
+        }
     }
     LaunchedEffect(Unit) { runCatching { firstFocus.requestFocus() } }
 
@@ -294,7 +320,9 @@ private fun SubtitleFontUrlDialog(onDismiss: () -> Unit, onImport: (String) -> U
     var value by remember { mutableStateOf("") }
     var isInputFocused by remember { mutableStateOf(false) }
     val inputFocusRequester = remember { FocusRequester() }
+    val cardFocusRequester = remember { FocusRequester() }
     val keyboardController = LocalSoftwareKeyboardController.current
+    LaunchedEffect(Unit) { runCatching { cardFocusRequester.requestFocus() } }
 
     NuvioDialog(
         onDismiss = onDismiss,
@@ -306,6 +334,7 @@ private fun SubtitleFontUrlDialog(onDismiss: () -> Unit, onImport: (String) -> U
             onClick = { inputFocusRequester.requestFocus() },
             modifier = Modifier
                 .fillMaxWidth()
+                .focusRequester(cardFocusRequester)
                 .onFocusChanged { isInputFocused = it.isFocused || it.hasFocus },
             colors = CardDefaults.colors(
                 containerColor = NuvioTheme.colors.BackgroundElevated,
@@ -332,8 +361,12 @@ private fun SubtitleFontUrlDialog(onDismiss: () -> Unit, onImport: (String) -> U
                         .fillMaxWidth()
                         .focusRequester(inputFocusRequester)
                         .onKeyEvent { event ->
-                            event.nativeKeyEvent.keyCode == KeyEvent.KEYCODE_DPAD_CENTER &&
+                            // Center on the field is consumed (so it doesn't fall through to the
+                            // card) and reopens the keyboard after it was dismissed.
+                            val isCenterDown = event.nativeKeyEvent.keyCode == KeyEvent.KEYCODE_DPAD_CENTER &&
                                 event.nativeKeyEvent.action == KeyEvent.ACTION_DOWN
+                            if (isCenterDown) keyboardController?.show()
+                            isCenterDown
                         },
                     singleLine = true,
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri, imeAction = ImeAction.Done),

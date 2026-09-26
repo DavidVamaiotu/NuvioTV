@@ -244,6 +244,8 @@ internal fun PlayerRuntimeController.maybeRunAutomaticSubtitleSync(
                     null
                 }
             if (secondarySeed != null) {
+                // The fallback and failure toast below should reflect this attempt, not the first.
+                analysisOutcome = null
                 searchResult = AutomaticSubtitleSync.findTimelineRetime(
                     sourceKey = sourceUrlAtStart,
                     sourceHeaders = sourceHeadersAtStart,
@@ -255,6 +257,7 @@ internal fun PlayerRuntimeController.maybeRunAutomaticSubtitleSync(
                         _uiState.value.addonSubtitles.map { it.toAutoSyncCandidate() }
                     },
                     continueDebugSession = true,
+                    onAnalysisOutcome = { outcome -> analysisOutcome = outcome },
                 )
                 val matched = searchResult != null
                 AutoSyncDebugLog.info {
