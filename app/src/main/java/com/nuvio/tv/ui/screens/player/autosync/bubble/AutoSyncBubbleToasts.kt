@@ -27,7 +27,7 @@ internal data class AutoSyncBubbleMessage(
 )
 
 /**
- * The optional glass bubble that replaces AutoSync's plain toasts. On by default. Without a
+ * The optional frosted bubble that replaces AutoSync's plain toasts. On by default. Without a
  * player on screen to draw it (or with the setting off) [post] returns false, so the caller
  * shows its plain toast instead.
  */
@@ -117,7 +117,7 @@ internal object AutoSyncBubbleToasts {
 private val autoSyncMessageHandler = Handler(Looper.getMainLooper())
 
 /**
- * Shows an AutoSync message in the glass bubble when it is turned on and the player is on screen,
+ * Shows an AutoSync message in the frosted bubble when it is turned on and the player is on screen,
  * else as the plain toast it always was. Safe to call from any thread.
  */
 internal fun showAutoSyncMessage(

@@ -12,7 +12,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.nuvio.tv.R
 import com.nuvio.tv.ui.screens.player.autosync.bubble.AutoSyncBubbleToasts
 
-/** "Bubble notifications": AutoSync's messages in the glass bubble instead of plain toasts. On by default. */
+/** "Bubble notifications": AutoSync's messages in the frosted bubble instead of plain toasts. On by default. */
 internal fun LazyListScope.autoSyncBubbleSettingsItems(enabled: Boolean) {
     item(key = "autosync_bubble_toast") {
         val context = LocalContext.current
