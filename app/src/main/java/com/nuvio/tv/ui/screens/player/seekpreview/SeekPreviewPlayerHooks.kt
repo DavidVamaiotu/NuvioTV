@@ -61,7 +61,7 @@ fun SeekPreviewAboveProgressBar(viewModel: PlayerViewModel) {
 /**
  * Cue ticks across a progress bar, at the positions grid-locked scrubbing can stop on.
  * Suppressed once they would be denser than the eye can separate — at that point the 10s grid
- * is a rounding error on the bar, and the preview strip carries the granularity.
+ * is a rounding error on the bar, and the preview frame carries the granularity.
  */
 @Composable
 fun SeekPreviewCueTicks(viewModel: PlayerViewModel, durationMs: Long, modifier: Modifier) {
