@@ -5,35 +5,64 @@ import com.nuvio.tv.domain.model.AddonStreams
 import com.nuvio.tv.domain.model.Stream
 
 /**
- * Orders each list around what the current connection can sustain: streams that fit come first,
- * highest bitrate first, so the top is the best quality that plays smoothly rather than the
- * smallest file. Streams whose bitrate can't be known (no size or runtime) follow in their
- * original order, and streams that exceed the connection go last, also in original order.
+ * Moves streams likely too heavy for the current connection to the bottom of each list and
+ * leaves everything else exactly where the addon (or the user's sort) put it. Streams whose
+ * bitrate can't be known stay in place: missing metadata is not evidence of a heavy stream.
+ * Capture it once per stream load, so the order never shifts while a list is open.
  */
 internal class StreamConnectionFit(
     private val runtimeMinutes: Int,
     private val connectionMbps: Double,
 ) {
-    fun applyToGroups(groups: List<AddonStreams>): List<AddonStreams> = groups.map { group ->
-        val streams = apply(group.streams)
-        if (streams === group.streams) group else group.copy(streams = streams)
+    /** Streams whose average bitrate is above this can't sustain playback with headroom. */
+    private val maxBitrateMbps = connectionMbps / BITRATE_HEADROOM
+
+    /** Returns [groups] itself, and each unchanged group itself, when nothing needs to move. */
+    fun applyToGroups(groups: List<AddonStreams>): List<AddonStreams> {
+        var result: ArrayList<AddonStreams>? = null
+        for (index in groups.indices) {
+            val group = groups[index]
+            val streams = apply(group.streams)
+            if (streams === group.streams && result == null) continue
+            if (result == null) result = ArrayList<AddonStreams>(groups.size).apply { addAll(groups.subList(0, index)) }
+            result += if (streams === group.streams) group else group.copy(streams = streams)
+        }
+        return result ?: groups
     }
 
+    /**
+     * Stable partition: kept streams in their order, then heavy streams in their order. Returns
+     * the same list when nothing needs to move, which is the common case.
+     */
     fun apply(streams: List<Stream>): List<Stream> {
         if (streams.size < 2) return streams
-        val fitting = mutableListOf<Pair<Stream, Double>>()
-        val unknown = mutableListOf<Stream>()
-        val exceeding = mutableListOf<Stream>()
-        for (stream in streams) {
-            val bitrateMbps = stream.averageBitrateMbps(runtimeMinutes)
-            when {
-                bitrateMbps == null -> unknown += stream
-                bitrateMbps * BITRATE_HEADROOM > connectionMbps -> exceeding += stream
-                else -> fitting += stream to bitrateMbps
+        var firstHeavy = -1
+        var mustMove = false
+        for (index in streams.indices) {
+            if (isHeavy(streams[index])) {
+                if (firstHeavy < 0) firstHeavy = index
+            } else if (firstHeavy >= 0) {
+                mustMove = true
+                break
             }
         }
-        val ordered = fitting.sortedByDescending { it.second }.map { it.first } + unknown + exceeding
-        return if (ordered == streams) streams else ordered
+        if (!mustMove) return streams
+
+        val ordered = ArrayList<Stream>(streams.size)
+        val heavy = ArrayList<Stream>(streams.size - firstHeavy)
+        for (index in 0 until firstHeavy) ordered += streams[index]
+        heavy += streams[firstHeavy]
+        for (index in firstHeavy + 1 until streams.size) {
+            val stream = streams[index]
+            if (isHeavy(stream)) heavy += stream else ordered += stream
+        }
+        ordered.addAll(heavy)
+        return ordered
+    }
+
+    private fun isHeavy(stream: Stream): Boolean {
+        val bitrateMbps = stream.averageBitrateMbps(runtimeMinutes) ?: return false
+        return bitrateMbps > maxBitrateMbps
     }
 
     companion object {
@@ -49,13 +78,9 @@ internal class StreamConnectionFit(
             return StreamConnectionFit(minutes, connectionMbps)
         }
 
-        /** [groups] ordered for the current connection, or unchanged when that isn't possible. */
-        fun order(context: Context, runtimeMinutes: Int?, groups: List<AddonStreams>): List<AddonStreams> =
-            capture(context, runtimeMinutes)?.applyToGroups(groups) ?: groups
-
-        /** As [order], taking the runtime from the playing file's duration. */
-        fun orderByDuration(context: Context, durationMs: Long, groups: List<AddonStreams>): List<AddonStreams> =
-            order(context, (durationMs / 60_000L).toInt().takeIf { durationMs > 0L }, groups)
+        /** As [capture], taking the runtime from the playing file's duration. */
+        fun captureByDuration(context: Context, durationMs: Long): StreamConnectionFit? =
+            capture(context, (durationMs / 60_000L).toInt().takeIf { durationMs > 0L })
     }
 }
 

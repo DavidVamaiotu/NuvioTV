@@ -221,6 +221,10 @@ internal fun PlayerRuntimeController.loadSourceStreams(forceRefresh: Boolean) {
             updateSourceChipsForFetchStart(type, vid, installedAddons)
         }
 
+        // Nuvio RS: one connection snapshot per load, taken once the duration is known.
+        var connectionFit: StreamConnectionFit? = null
+        var connectionFitCaptured = false
+
         streamRepository.getStreamsFromAllAddons(
             type = type,
             videoId = vid,
@@ -230,11 +234,14 @@ internal fun PlayerRuntimeController.loadSourceStreams(forceRefresh: Boolean) {
         ).collect { result ->
             when (result) {
                 is NetworkResult.Success -> {
-                    val addonStreams = StreamConnectionFit.orderByDuration(
-                        context,
-                        currentPlaybackDurationMs(),
-                        StreamAutoPlaySelector.orderAddonStreams(result.data, installedAddonOrder)
-                    )
+                    if (!connectionFitCaptured) {
+                        currentPlaybackDurationMs().takeIf { it > 0L }?.let { durationMs ->
+                            connectionFit = StreamConnectionFit.captureByDuration(context, durationMs)
+                            connectionFitCaptured = true
+                        }
+                    }
+                    val addonOrderedStreams = StreamAutoPlaySelector.orderAddonStreams(result.data, installedAddonOrder)
+                    val addonStreams = connectionFit?.applyToGroups(addonOrderedStreams) ?: addonOrderedStreams
                     val allStreams = addonStreams.flatMap { it.streams }
                     val availableAddons = addonStreams.map { it.addonName }
                     _uiState.update {
