@@ -6,6 +6,7 @@
 package com.nuvio.tv.ui.screens.player
 
 import com.nuvio.tv.ui.screens.player.audiosync.SubtitleSyncStatusPanel
+import com.nuvio.tv.ui.screens.player.autosync.bubble.AutoSyncBubbleToastHost
 import com.nuvio.tv.ui.theme.NuvioMotion
 
 import com.nuvio.tv.ui.theme.NuvioTheme
@@ -1114,6 +1115,7 @@ fun PlayerScreen(
         }
 
         SubtitleSyncStatusPanel(NuvioTheme.spacing.xl) // AutoSync hook: audio sync fallback status
+        AutoSyncBubbleToastHost(controlsVisible = uiState.showControls) // Nuvio RS hook: AutoSync bubble
 
         // Torrent stats overlay (top-right corner)
         TorrentOverlay(

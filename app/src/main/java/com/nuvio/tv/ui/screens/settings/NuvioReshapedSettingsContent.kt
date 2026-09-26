@@ -44,6 +44,7 @@ internal fun NuvioReshapedSettingsContent(
                 Modifier
             },
         )
+        autoSyncBubbleSettingsItems(enabled = playerSettings.playerPreference != PlayerPreference.EXTERNAL) // Nuvio RS hook: AutoSync bubble
         seekrKeySettingsItems()
         seekPreviewSettingsItems()
         connectionSpeedSettingsItems()
