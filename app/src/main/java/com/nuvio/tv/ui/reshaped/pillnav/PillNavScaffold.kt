@@ -2,9 +2,16 @@ package com.nuvio.tv.ui.reshaped.pillnav
 
 import android.util.Log
 import androidx.activity.compose.BackHandler
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.LinearOutSlowInEasing
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.padding
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
@@ -28,7 +35,6 @@ import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.unit.LayoutDirection
-import androidx.compose.ui.unit.dp
 import androidx.lifecycle.ViewModelProvider
 import androidx.navigation.NavHostController
 import com.nuvio.tv.DrawerItem
@@ -37,8 +43,6 @@ import com.nuvio.tv.LocalSidebarExpanded
 import com.nuvio.tv.ui.navigation.NuvioNavHost
 import com.nuvio.tv.ui.navigation.Screen
 import com.nuvio.tv.ui.screens.home.HomeViewModel
-import dev.chrisbanes.haze.HazeState
-import dev.chrisbanes.haze.hazeSource
 
 private const val PROFILE_ENTRY_KEY = "pill_nav_profile"
 
@@ -47,6 +51,13 @@ private const val PROFILE_ENTRY_KEY = "pill_nav_profile"
  * pill menu floats at the top centre on root screens. D-pad Up from the content reaches the pill (always on
  * the selected item), Left/Right walk it, Center/Enter opens, Down returns to the content. Back on a root
  * screen moves focus to the pill, and Back on the pill exits, like the sidebar.
+ *
+ * TV layout: the pill floats in the header band root screens already keep free when their built-in headers are
+ * hidden (the same band the modern sidebar's floating pill uses), so screens keep their normal size and nothing
+ * is inset. It tucks away (translate + fade on a graphics layer, no relayout, no blur) when focus moves down into
+ * scrolling content and comes back on the way up; on Search it stays tucked away unless it has focus, like the
+ * modern sidebar's pill, so it never covers the search field. [topBannerVisible] lets D-pad Up leave the pill
+ * for the update banner above the navigation area.
  */
 @Composable
 internal fun PillNavScaffold(
@@ -65,9 +76,12 @@ internal fun PillNavScaffold(
     onSwitchProfile: () -> Unit,
     onNavigate: (String) -> Unit,
     onExitApp: () -> Unit,
+    topBannerVisible: Boolean = false,
 ) {
     val showBar = currentRoute in rootRoutes
-    val isHome = currentRoute == Screen.Home.route
+    // Settings keeps the pill in its header band; every other root screen scrolls under it, so it tucks away.
+    val autoHide = showBar && currentRoute != Screen.Settings.route
+    val hiddenUnlessFocused = currentRoute == Screen.Search.route
     val state = remember { PillNavBarState() }
     val focusRequesters = remember { HashMap<String, FocusRequester>() }
     val requesterFor = remember<(String) -> FocusRequester> {
@@ -77,7 +91,6 @@ internal fun PillNavScaffold(
     val isRtl = LocalLayoutDirection.current == LayoutDirection.Rtl
     val keyboardController = LocalSoftwareKeyboardController.current
     val contentFocusRequester = remember { FocusRequester() }
-    val hazeState = remember { HazeState() }
     var pendingBarFocus by remember { mutableStateOf(false) }
     var pendingContentFocus by remember { mutableStateOf(false) }
 
@@ -174,8 +187,6 @@ internal fun PillNavScaffold(
         Box(
             modifier = Modifier
                 .fillMaxSize()
-                .then(if (blurEnabled && showBar) Modifier.hazeSource(state = hazeState) else Modifier)
-                .padding(top = if (showBar && !isHome) PillNavTokens.contentTopPadding else 0.dp)
                 .onPreviewKeyEvent { keyEvent ->
                     if (keyEvent.key == Key.Back) {
                         // Long-press Back on a root screen jumps straight to the pill, past the screens' own Back.
@@ -192,8 +203,8 @@ internal fun PillNavScaffold(
                         }
                         return@onPreviewKeyEvent false
                     }
-                    // Hide-on-scroll for Home: moving down into the rows tucks the pill away, moving up brings it back.
-                    if (showBar && isHome && keyEvent.type == KeyEventType.KeyDown) {
+                    // Hide-on-scroll: moving down into the content tucks the pill away, moving up brings it back.
+                    if (autoHide && keyEvent.type == KeyEventType.KeyDown) {
                         when (keyEvent.key) {
                             Key.DirectionDown -> state.hide()
                             Key.DirectionUp -> state.show()
@@ -229,14 +240,30 @@ internal fun PillNavScaffold(
             }
         }
 
-        if (showBar && entries.isNotEmpty()) {
+        // Slides in from the top edge when a root screen appears and out when a detail screen opens; the
+        // enter/exit only moves and fades the pill's layer.
+        AnimatedVisibility(
+            visible = showBar && entries.isNotEmpty(),
+            modifier = Modifier.align(Alignment.TopCenter),
+            enter = slideInVertically(
+                animationSpec = tween(durationMillis = 320, easing = LinearOutSlowInEasing),
+                initialOffsetY = { -it },
+            ) + fadeIn(animationSpec = tween(durationMillis = 260)),
+            exit = slideOutVertically(
+                animationSpec = tween(durationMillis = 200, easing = FastOutSlowInEasing),
+                targetOffsetY = { -it },
+            ) + fadeOut(animationSpec = tween(durationMillis = 160)),
+        ) {
             PillNavigationBar(
                 entries = entries,
                 selectedKey = selectedKey,
                 state = state,
                 requesterFor = requesterFor,
-                hazeState = if (blurEnabled) hazeState else null,
-                hidden = isHome && state.hiddenByScroll,
+                frosted = blurEnabled,
+                // While it animates out on a detail screen the pill must not be a focus target.
+                interactive = showBar,
+                hidden = hiddenUnlessFocused || (autoHide && state.hiddenByScroll),
+                canLeaveUp = topBannerVisible,
                 isRtl = isRtl,
                 activeProfileColorHex = activeProfileColorHex,
                 activeProfileAvatarImageUrl = activeProfileAvatarImageUrl,
@@ -257,7 +284,7 @@ internal fun PillNavScaffold(
                         runCatching { contentFocusRequester.requestFocus() }
                     }
                 },
-                modifier = Modifier.align(Alignment.TopCenter),
+                onExitUp = { focusManager.moveFocus(FocusDirection.Up) },
             )
         }
     }
