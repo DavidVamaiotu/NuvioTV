@@ -26,8 +26,12 @@ internal object SeekBufferSettings {
     // NuvioMpvSurfaceView's own demuxer cache sizes: the setting never goes below them.
     private const val MPV_NUVIO_CACHE_BYTES = 64L * MB
 
+    // At or below this much RAM (2 GB boxes report a little under 2 GB), the cap is halved.
+    private const val LOW_RAM_BYTES = 2560L * MB
+
     @Volatile private var preferences: SharedPreferences? = null
     @Volatile private var totalRamBytes = -1L
+    @Volatile private var lowRam: Boolean? = null
 
     private val _bufferMb = MutableStateFlow(DEFAULT_MB)
     val bufferMb: StateFlow<Int> = _bufferMb.asStateFlow()
@@ -63,15 +67,23 @@ internal object SeekBufferSettings {
     /**
      * libmpv's forward and back demuxer cache in bytes: two thirds of the setting ahead of
      * playback and one third behind it, capped at an eighth of the device's RAM (it is native
-     * memory), and never below Nuvio's own 64 MB each.
+     * memory; a sixteenth on low-RAM boxes), and never below Nuvio's own 64 MB each.
      */
     fun mpvCacheBytes(context: Context): Pair<Long, Long> {
         initialize(context)
         var budget = _bufferMb.value.coerceAtLeast(0) * MB
         if (budget <= 0L) return MPV_NUVIO_CACHE_BYTES to MPV_NUVIO_CACHE_BYTES
         val ram = deviceRamBytes(context)
-        if (ram > 0L) budget = budget.coerceAtMost(ram / 8)
+        if (ram > 0L) budget = budget.coerceAtMost(if (isLowRam(context, ram)) ram / 16 else ram / 8)
         return maxOf(budget * 2 / 3, MPV_NUVIO_CACHE_BYTES) to maxOf(budget / 3, MPV_NUVIO_CACHE_BYTES)
+    }
+
+    private fun isLowRam(context: Context, ram: Long): Boolean {
+        lowRam?.let { return it }
+        val manager = context.applicationContext.getSystemService(Context.ACTIVITY_SERVICE) as? ActivityManager
+        val low = ram <= LOW_RAM_BYTES || runCatching { manager?.isLowRamDevice == true }.getOrDefault(false)
+        lowRam = low
+        return low
     }
 
     private fun deviceRamBytes(context: Context): Long {

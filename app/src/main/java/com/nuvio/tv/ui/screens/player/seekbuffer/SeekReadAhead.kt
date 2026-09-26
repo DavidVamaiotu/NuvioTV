@@ -4,6 +4,9 @@ package com.nuvio.tv.ui.screens.player.seekbuffer
 
 import android.content.Context
 import android.net.Uri
+import android.system.ErrnoException
+import android.system.Os
+import android.system.OsConstants
 import android.util.Log
 import androidx.media3.common.ByteBufferDataReader
 import androidx.media3.common.C
@@ -16,7 +19,6 @@ import java.io.IOException
 import java.io.InterruptedIOException
 import java.io.RandomAccessFile
 import java.nio.ByteBuffer
-import java.nio.channels.FileChannel
 import java.util.Locale
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.locks.ReentrantLock
@@ -153,12 +155,18 @@ private class ReadAheadDataSourceFactory(
 /**
  * The ring file and the one connection filling it. Valid bytes are the stream range
  * [windowStart, windowEnd); stream position p lives at file offset p % capacity.
+ *
+ * The file is read and written with positional system calls (pread/pwrite), not a FileChannel:
+ * ExoPlayer interrupts its loader thread to cancel a load, and an interrupted FileChannel
+ * closes itself for every thread, which would stop the read-ahead at the first seek.
  */
 private class ReadAheadSession(val key: String, private val file: File, private val capacity: Long) {
     @Volatile var upstreamFactory: DataSource.Factory? = null
 
     // Opened by the filler thread, so the player thread never touches storage to set it up.
-    @Volatile private var channel: FileChannel? = null
+    @Volatile private var ring: RandomAccessFile? = null
+    /** The connection being opened or read, so a seek or close can abort it when it stalls. */
+    @Volatile private var activeSource: DataSource? = null
     private val lock = ReentrantLock()
     private val changed = lock.newCondition()
 
@@ -174,6 +182,10 @@ private class ReadAheadSession(val key: String, private val file: File, private 
     private var filler: Thread? = null
     private var playerPosition = -1L
     private var retryNow = false
+    /** The connection for the current place has opened (or found the stream is a playlist). */
+    private var connected = false
+    /** Player reads from the file in progress: the file is closed only once there are none. */
+    private var fileReaders = 0
     /** Set when the server says the stream is an HLS/DASH playlist: later reads go direct. */
     private var adaptive = false
 
@@ -199,6 +211,7 @@ private class ReadAheadSession(val key: String, private val file: File, private 
         lock.withLock {
             if (closed || adaptive) return false
             if (started && position >= windowStart && position <= windowEnd + NEAR_BYTES) {
+                makeRoomFor(position)
                 if (error != null) {
                     error = null
                     retryNow = true
@@ -211,6 +224,25 @@ private class ReadAheadSession(val key: String, private val file: File, private 
         return !isClosed
     }
 
+    /**
+     * The stream length for an open. Right after the read-ahead moved, its connection may not be
+     * open yet: waits for it (bounded), so the player learns the length (duration, seeking in
+     * files without an index) on open, and a refused link fails the open, not a later read.
+     */
+    fun awaitLength(): Long = lock.withLock {
+        var leftNs = TimeUnit.MILLISECONDS.toNanos(CONNECT_WAIT_MS)
+        while (!closed && !connected && error == null && contentLength == C.LENGTH_UNSET.toLong() && leftNs > 0) {
+            try {
+                leftNs = changed.awaitNanos(leftNs)
+            } catch (interrupted: InterruptedException) {
+                Thread.currentThread().interrupt()
+                throw InterruptedIOException()
+            }
+        }
+        error?.let { throw it }
+        contentLength
+    }
+
     /** Bytes read ahead past where the player last read, and the stream length; null if unknown. */
     fun aheadOfPlayer(): Pair<Long, Long>? = lock.withLock {
         if (closed || !started || contentLength == C.LENGTH_UNSET.toLong()) return null
@@ -218,26 +250,42 @@ private class ReadAheadSession(val key: String, private val file: File, private 
         (windowEnd - playerPosition) to contentLength
     }
 
-    /** Stream length, when the server told us. */
-    fun length(): Long = lock.withLock { contentLength }
+    /**
+     * Under lock. A read at or past the end of a full ring would wait for the connection while
+     * the connection waits for room: what lies well behind [position] is dropped so it can go on.
+     */
+    private fun makeRoomFor(position: Long) {
+        if (position < windowEnd) return
+        val keepFrom = minOf(windowEnd, position - BACK_KEEP_BYTES)
+        if (keepFrom > windowStart) {
+            windowStart = keepFrom
+            changed.signalAll()
+        }
+    }
 
     /** Moves the read-ahead to [position]; what was read ahead elsewhere is dropped. */
-    private fun relocate(position: Long) = lock.withLock {
-        if (closed) return@withLock
-        generation++
-        windowStart = position
-        windowEnd = position
-        ended = contentLength != C.LENGTH_UNSET.toLong() && position >= contentLength
-        error = null
-        started = true
-        playerPosition = position
-        changed.signalAll()
-        if (filler == null) {
-            filler = Thread(::fillLoop, "NuvioSeekReadAhead").apply {
-                isDaemon = true
-                start()
+    private fun relocate(position: Long) {
+        val stale = lock.withLock {
+            if (closed) return
+            generation++
+            windowStart = position
+            windowEnd = position
+            ended = contentLength != C.LENGTH_UNSET.toLong() && position >= contentLength
+            error = null
+            connected = false
+            started = true
+            playerPosition = position
+            changed.signalAll()
+            if (filler == null) {
+                filler = Thread(::fillLoop, "NuvioSeekReadAhead").apply {
+                    isDaemon = true
+                    start()
+                }
             }
+            activeSource.also { activeSource = null }
         }
+        // A connection stalled at the old place would otherwise hold the seek up until it fails.
+        stale?.closeQuietly()
     }
 
     /**
@@ -246,7 +294,9 @@ private class ReadAheadSession(val key: String, private val file: File, private 
      * the end of the stream.
      */
     fun read(position: Long, target: ByteBuffer, length: Int): Int {
+        if (Thread.currentThread().isInterrupted) throw InterruptedIOException()
         val available = lock.withLock {
+            makeRoomFor(position)
             while (!closed && position >= windowStart && position >= windowEnd && !ended && error == null) {
                 try {
                     changed.await()
@@ -261,121 +311,148 @@ private class ReadAheadSession(val key: String, private val file: File, private 
                 if (ended) return C.RESULT_END_OF_INPUT
                 throw error ?: IOException("read-ahead failed")
             }
-            minOf(length.toLong(), target.remaining().toLong(), windowEnd - position).toInt()
+            val count = minOf(length.toLong(), target.remaining().toLong(), windowEnd - position).toInt()
+            if (count > 0) fileReaders++
+            count
         }
         if (available <= 0) return 0
-        readFile(position, target, available)
-        lock.withLock {
-            // Keep a little behind the player for re-reads; the rest of the ring is free again.
-            playerPosition = position + available
-            val keepFrom = position + available - BACK_KEEP_BYTES
-            if (keepFrom > windowStart) {
-                windowStart = minOf(keepFrom, windowEnd)
-                changed.signalAll()
+        var done = false
+        try {
+            readFile(position, target, available)
+            done = true
+        } finally {
+            lock.withLock {
+                fileReaders--
+                if (done) {
+                    // Keep a little behind the player for re-reads; the rest of the ring is free again.
+                    playerPosition = position + available
+                    val keepFrom = position + available - BACK_KEEP_BYTES
+                    if (keepFrom > windowStart) {
+                        windowStart = minOf(keepFrom, windowEnd)
+                        changed.signalAll()
+                    }
+                }
+                if (closed && fileReaders == 0) changed.signalAll()
             }
         }
         return available
     }
 
     fun close() {
-        val hadFiller = lock.withLock {
+        val (hadFiller, stale) = lock.withLock {
             if (closed) return
             closed = true
             changed.signalAll()
-            filler != null
+            (filler != null) to activeSource.also { activeSource = null }
+        }
+        // Off the caller's (possibly main) thread: closing a connection may touch the network.
+        if (stale != null) {
+            Thread({ stale.closeQuietly() }, "NuvioSeekReadAheadClose").apply { isDaemon = true }.start()
         }
         // The filler deletes the file itself once its connection is closed.
         if (!hadFiller) disposeFile()
     }
 
     private fun fillLoop() {
-        try {
-            channel = RandomAccessFile(file, "rw").channel
-        } catch (failure: IOException) {
-            failDisk(failure)
-        }
         val buffer = ByteArray(CHUNK_BYTES)
         var source: DataSource? = null
-        var myGeneration = -1
-        var position = 0L
-        var failures = 0
-        while (true) {
-            val space = lock.withLock {
-                while (!closed && myGeneration == generation && (ended || windowEnd - windowStart >= capacity)) {
-                    isDownloading = false
-                    changed.await()
-                }
-                if (closed) return@withLock null
-                if (myGeneration != generation) {
-                    myGeneration = generation
-                    position = windowEnd
-                    failures = 0
-                    source?.closeQuietly()
-                    source = null
-                }
-                minOf(CHUNK_BYTES.toLong(), capacity - (windowEnd - windowStart)).toInt()
-            } ?: break
-            isDownloading = true
+        fun dropSource() {
+            source?.closeQuietly()
+            source = null
+            activeSource = null
+        }
+        try {
             try {
-                val open = source ?: openAt(position, myGeneration)?.also { source = it } ?: continue
-                val read = open.read(buffer, 0, space)
-                if (read == C.RESULT_END_OF_INPUT) {
-                    open.closeQuietly()
-                    source = null
+                ring = RandomAccessFile(file, "rw")
+            } catch (failure: IOException) {
+                failDisk(failure)
+            }
+            var myGeneration = -1
+            var position = 0L
+            var failures = 0
+            while (true) {
+                val space = lock.withLock {
+                    while (!closed && myGeneration == generation && (ended || windowEnd - windowStart >= capacity)) {
+                        isDownloading = false
+                        changed.await()
+                    }
+                    if (closed) return@withLock null
+                    if (myGeneration != generation) {
+                        myGeneration = generation
+                        position = windowEnd
+                        failures = 0
+                        dropSource()
+                    }
+                    minOf(CHUNK_BYTES.toLong(), capacity - (windowEnd - windowStart)).toInt()
+                } ?: break
+                isDownloading = true
+                try {
+                    val open = source ?: openAt(position, myGeneration)?.also { source = it } ?: continue
+                    val read = open.read(buffer, 0, space)
+                    if (read == C.RESULT_END_OF_INPUT) {
+                        dropSource()
+                        lock.withLock {
+                            if (myGeneration == generation) {
+                                contentLength = windowEnd
+                                ended = true
+                                changed.signalAll()
+                            }
+                        }
+                        continue
+                    }
+                    // Data for a place the read-ahead already left is dropped, not written over the new one.
+                    if (lock.withLock { closed || myGeneration != generation }) continue
+                    try {
+                        writeFile(position, buffer, read)
+                    } catch (diskFailure: IOException) {
+                        // Storage full or gone: stop, and the player falls back to reading directly.
+                        // The connection closes first, so the player's own never sits next to it.
+                        dropSource()
+                        failDisk(diskFailure)
+                        continue
+                    }
+                    position += read
+                    failures = 0
                     lock.withLock {
                         if (myGeneration == generation) {
-                            contentLength = windowEnd
-                            ended = true
+                            windowEnd = position
                             changed.signalAll()
                         }
                     }
-                    continue
-                }
-                // Data for a place the read-ahead already left is dropped, not written over the new one.
-                if (lock.withLock { closed || myGeneration != generation }) continue
-                try {
-                    writeFile(position, buffer, read)
-                } catch (diskFailure: IOException) {
-                    // Storage full or gone: stop, and the player falls back to reading directly.
-                    // The connection closes first, so the player's own never sits next to it.
-                    open.closeQuietly()
-                    source = null
-                    failDisk(diskFailure)
-                    continue
-                }
-                position += read
-                failures = 0
-                lock.withLock {
-                    if (myGeneration == generation) {
-                        windowEnd = position
-                        changed.signalAll()
+                } catch (caught: Exception) {
+                    // Also what a connection closed under it by a seek or close() throws.
+                    val failure = caught as? IOException ?: IOException(caught)
+                    dropSource()
+                    isDownloading = false
+                    // A refused or missing link will not come back by retrying: tell the player now.
+                    failures = if (isPermanent(failure)) SURFACE_AFTER_FAILURES else failures + 1
+                    lock.withLock {
+                        // Brief drops are retried quietly, like a slow network; repeated failures
+                        // reach the player so its own error handling (and error screen) applies.
+                        if (myGeneration == generation && failures >= SURFACE_AFTER_FAILURES) {
+                            error = failure
+                            changed.signalAll()
+                        }
+                        val waitMs = minOf(RETRY_BASE_MS shl minOf(failures - 1, 3), RETRY_MAX_MS)
+                        var leftNs = TimeUnit.MILLISECONDS.toNanos(waitMs)
+                        while (!closed && myGeneration == generation && !retryNow && leftNs > 0) {
+                            leftNs = changed.awaitNanos(leftNs)
+                        }
+                        retryNow = false
                     }
-                }
-            } catch (failure: IOException) {
-                source?.closeQuietly()
-                source = null
-                isDownloading = false
-                // A refused or missing link will not come back by retrying: tell the player now.
-                failures = if (isPermanent(failure)) SURFACE_AFTER_FAILURES else failures + 1
-                lock.withLock {
-                    // Brief drops are retried quietly, like a slow network; repeated failures
-                    // reach the player so its own error handling (and error screen) applies.
-                    if (myGeneration == generation && failures >= SURFACE_AFTER_FAILURES) {
-                        error = failure
-                        changed.signalAll()
-                    }
-                    val waitMs = minOf(RETRY_BASE_MS shl minOf(failures - 1, 3), RETRY_MAX_MS)
-                    var leftNs = TimeUnit.MILLISECONDS.toNanos(waitMs)
-                    while (!closed && myGeneration == generation && !retryNow && leftNs > 0) {
-                        leftNs = changed.awaitNanos(leftNs)
-                    }
-                    retryNow = false
                 }
             }
+        } catch (unexpected: Throwable) {
+            // Never expected; the player must not hang on (or the app die with) a stopped read-ahead.
+            Log.w("SeekReadAhead", "read-ahead stopped", unexpected)
+            lock.withLock { if (error == null) error = unexpected as? IOException ?: IOException(unexpected) }
+            close()
+        } finally {
+            isDownloading = false
+            dropSource()
+            lock.withLock { while (fileReaders > 0) changed.awaitUninterruptibly() }
+            disposeFile()
         }
-        isDownloading = false
-        source?.closeQuietly()
-        disposeFile()
     }
 
     private fun failDisk(failure: IOException) {
@@ -388,9 +465,13 @@ private class ReadAheadSession(val key: String, private val file: File, private 
     private fun openAt(position: Long, forGeneration: Int): DataSource? {
         val factory = upstreamFactory ?: throw IOException("no upstream")
         val source = factory.createDataSource()
+        lock.withLock {
+            if (forGeneration != generation || closed) return null
+            activeSource = source
+        }
         val opened = try {
             source.open(DataSpec.Builder().setUri(key).setPosition(position).build())
-        } catch (failure: IOException) {
+        } catch (failure: Exception) {
             source.closeQuietly()
             throw failure
         }
@@ -407,6 +488,8 @@ private class ReadAheadSession(val key: String, private val file: File, private 
                 ?.value?.firstOrNull()?.lowercase(Locale.US).orEmpty()
             if ("mpegurl" in contentType || "dash+xml" in contentType) adaptive = true
             error = null
+            connected = true
+            changed.signalAll()
         }
         return source
     }
@@ -423,32 +506,32 @@ private class ReadAheadSession(val key: String, private val file: File, private 
     }
 
     private fun writeFile(position: Long, buffer: ByteArray, length: Int) {
-        val ch = channel ?: throw IOException("read-ahead file not open")
+        val fd = ring?.fd ?: throw IOException("read-ahead file not open")
         var done = 0
         while (done < length) {
-            var at = (position + done) % capacity
+            val at = (position + done) % capacity
             val part = minOf((length - done).toLong(), capacity - at).toInt()
-            val bytes = ByteBuffer.wrap(buffer, done, part)
-            while (bytes.hasRemaining()) at += ch.write(bytes, at)
-            done += part
+            val written = retryOnEintr { Os.pwrite(fd, buffer, done, part, at) }
+            if (written <= 0) throw IOException("read-ahead file not written")
+            done += written
         }
     }
 
     private fun readFile(position: Long, target: ByteBuffer, length: Int) {
-        val ch = channel ?: throw IOException("read-ahead file not open")
+        val fd = ring?.fd ?: throw IOException("read-ahead file not open")
         val limit = target.limit()
         try {
             var done = 0
             while (done < length) {
-                var at = (position + done) % capacity
+                val at = (position + done) % capacity
                 val part = minOf((length - done).toLong(), capacity - at).toInt()
                 target.limit(target.position() + part)
-                while (target.hasRemaining()) {
-                    val read = ch.read(target, at)
-                    if (read < 0) throw IOException("read-ahead file truncated")
-                    at += read
-                }
-                done += part
+                val from = target.position()
+                val read = retryOnEintr { Os.pread(fd, target, at) }
+                if (read <= 0) throw IOException("read-ahead file truncated")
+                // Set explicitly rather than relying on pread to advance it.
+                target.position(from + read)
+                done += read
             }
         } finally {
             target.limit(limit)
@@ -456,7 +539,7 @@ private class ReadAheadSession(val key: String, private val file: File, private 
     }
 
     private fun disposeFile() {
-        runCatching { channel?.close() }
+        runCatching { ring?.close() }
         runCatching { file.delete() }
     }
 
@@ -467,6 +550,8 @@ private class ReadAheadSession(val key: String, private val file: File, private 
         const val SURFACE_AFTER_FAILURES = 3
         const val RETRY_BASE_MS = 1_000L
         const val RETRY_MAX_MS = 8_000L
+        // The player's own connect timeout (PlayerPlaybackNetworking).
+        const val CONNECT_WAIT_MS = 15_000L
 
         // The codes the player's own load error policy does not retry either.
         val PERMANENT_HTTP_CODES = setOf(400, 401, 403, 404, 410)
@@ -509,8 +594,8 @@ private class ReadAheadDataSource(
         position = dataSpec.position
         remaining = dataSpec.length
         if (dataSpec.uri.toString() == session.key && session.serve(position)) {
+            val length = session.awaitLength()
             fromRing = true
-            val length = session.length()
             return when {
                 remaining != C.LENGTH_UNSET.toLong() -> remaining
                 length != C.LENGTH_UNSET.toLong() -> (length - position).coerceAtLeast(0L)
@@ -605,4 +690,15 @@ private class ReadAheadDataSource(
 
 private fun DataSource.closeQuietly() {
     runCatching { close() }
+}
+
+/** Runs a file system call, again when a signal interrupted it; its errors as IOException. */
+private inline fun retryOnEintr(call: () -> Int): Int {
+    while (true) {
+        try {
+            return call()
+        } catch (failure: ErrnoException) {
+            if (failure.errno != OsConstants.EINTR) throw IOException(failure)
+        }
+    }
 }
