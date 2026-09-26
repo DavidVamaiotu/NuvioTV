@@ -68,4 +68,27 @@ class AutoSyncBubbleToastsTest {
         assertNull(AutoSyncBubbleToasts.current.value)
         assertFalse(AutoSyncBubbleToasts.post(AutoSyncBubbleKind.Working, "Auto Sync • Analyzing…"))
     }
+
+    @Test
+    fun aMessageDuringTheFadeStartsAFreshBubble() {
+        AutoSyncBubbleToasts.attachHost()
+        try {
+            assertTrue(AutoSyncBubbleToasts.post(AutoSyncBubbleKind.Working, "Auto Sync • Analyzing…"))
+            val working = AutoSyncBubbleToasts.current.value!!
+            AutoSyncBubbleToasts.leaving(working.session) // the timed-out bubble starts fading
+
+            assertTrue(AutoSyncBubbleToasts.post(AutoSyncBubbleKind.Working, "Auto Sync • Analyzing…"))
+            val fresh = AutoSyncBubbleToasts.current.value!!
+            assertNotEquals(working.session, fresh.session)
+
+            AutoSyncBubbleToasts.finished(working.id) // the old fade ends: the new bubble stays
+            assertEquals(fresh, AutoSyncBubbleToasts.current.value)
+
+            // The fresh run keeps its later messages in one bubble.
+            assertTrue(AutoSyncBubbleToasts.post(AutoSyncBubbleKind.Success, "Auto Sync • Subtitles synced"))
+            assertEquals(fresh.session, AutoSyncBubbleToasts.current.value!!.session)
+        } finally {
+            AutoSyncBubbleToasts.detachHost()
+        }
+    }
 }

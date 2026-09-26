@@ -59,13 +59,16 @@ import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.drawscope.translate
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.zIndex
 import androidx.tv.material3.Text
+import com.nuvio.tv.R
 import com.nuvio.tv.ui.theme.NuvioTheme
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -81,8 +84,15 @@ private val LabelGap = 10.dp
 /** Past these the words wrap onto more lines rather than being cut; the bubble grows to fit. */
 private val LabelMaxWidth = 300.dp
 private val CardMaxWidth = 340.dp
-/** Above the player's title, seek bar and buttons while they show; else just inside the overscan. */
+/** Above the player's title, seek bar and buttons while they show. */
 private val LiftWithControls = 200.dp
+/**
+ * With the controls hidden, clear of the subtitles: the player pads them 6% of the height from the
+ * bottom, plus about two caption lines (media3's default text is ~5.3% of the height). ~108 dp at 540.
+ */
+private const val LIFT_ABOVE_SUBTITLES_FRACTION = 0.20f
+/** While only the droplet shows, the spinner ticks at this slow cadence instead of every frame. */
+private const val IDLE_TICK_MS = 250L
 
 /** How long the working bubble keeps its words before settling to just the droplet. */
 private const val WORKING_LABEL_MS = 7_000L
@@ -117,8 +127,9 @@ internal fun BoxScope.AutoSyncBubbleToastHost(controlsVisible: Boolean) {
     val current = message
     if (!enabled || current == null) return
     val safeBottom = NuvioTheme.spacing.screen.overscanVertical
+    val aboveSubtitles = (LocalConfiguration.current.screenHeightDp * LIFT_ABOVE_SUBTITLES_FRACTION).dp
     val lift = animateDpAsState(
-        targetValue = if (controlsVisible) LiftWithControls else safeBottom,
+        targetValue = if (controlsVisible) LiftWithControls else maxOf(safeBottom, aboveSubtitles),
         animationSpec = spring(dampingRatio = 0.8f, stiffness = Spring.StiffnessLow),
         label = "autoSyncBubbleLift",
     )
@@ -161,6 +172,7 @@ private fun AutoSyncBubble(message: AutoSyncBubbleMessage, colors: BubbleColors,
     fun dismiss() {
         if (leaving) return
         leaving = true
+        AutoSyncBubbleToasts.leaving(message.session)
         scope.launch {
             cardOpen = false
             labelVisible = false
@@ -174,10 +186,14 @@ private fun AutoSyncBubble(message: AutoSyncBubbleMessage, colors: BubbleColors,
         appear.animateTo(1f, spring(dampingRatio = 0.85f, stiffness = 260f))
     }
     // The working clock: only ticks while the bubble works, then stops for good. It is read only
-    // inside graphicsLayer blocks, so a tick moves layers without recomposing or redrawing.
+    // inside graphicsLayer blocks, so a tick moves layers without recomposing or redrawing. Once
+    // the words have folded away (a run can work for minutes), it ticks a few times a second
+    // instead of every frame: the spinner steps round like a clock, and the box renders no
+    // UI frames in between.
     LaunchedEffect(Unit) {
         val start = withFrameNanos { it }
         while (kindState.value == AutoSyncBubbleKind.Working || settle.value < 1f) {
+            if (!labelVisible && kindState.value == AutoSyncBubbleKind.Working) delay(IDLE_TICK_MS)
             withFrameNanos { clock.floatValue = (it - start) / 1_000_000_000f * 0.6f }
         }
     }
@@ -270,7 +286,7 @@ private fun BubbleLabel(message: AutoSyncBubbleMessage, cardOpen: Boolean) {
                 .padding(end = 7.dp),
         ) {
             Text(
-                text = "AutoSync",
+                text = stringResource(R.string.autosync_bubble_label),
                 color = NuvioTheme.colors.TextPrimary.copy(alpha = 0.6f),
                 fontSize = 10.sp,
                 lineHeight = 12.sp,

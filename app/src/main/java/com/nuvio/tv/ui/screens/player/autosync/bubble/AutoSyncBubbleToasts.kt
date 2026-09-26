@@ -46,6 +46,8 @@ internal object AutoSyncBubbleToasts {
 
     private val hosts = AtomicInteger(0)
     private val nextId = AtomicLong(0L)
+    /** The run whose bubble is fading away; a message arriving now starts a fresh bubble. */
+    @Volatile private var leavingSession = -1L
 
     fun ensureLoaded(context: Context) {
         if (initialized) return
@@ -73,11 +75,20 @@ internal object AutoSyncBubbleToasts {
         val (headline, detail) = split(kind, text)
         val id = nextId.incrementAndGet()
         _current.update { previous ->
-            // A run continues while the bubble is still working; anything else starts a new bubble.
-            val session = if (previous != null && previous.kind == AutoSyncBubbleKind.Working) previous.session else id
+            // A run continues while the bubble is still working; anything else (a result, or a
+            // bubble already fading away) starts a new bubble.
+            val session = if (
+                previous != null && previous.kind == AutoSyncBubbleKind.Working &&
+                previous.session != leavingSession
+            ) previous.session else id
             AutoSyncBubbleMessage(id, session, kind, headline, detail)
         }
         return true
+    }
+
+    /** Called by the bubble as it starts fading [session] away, so later messages do not join it. */
+    fun leaving(session: Long) {
+        leavingSession = session
     }
 
     /** Called by the bubble once it has finished animating [id] away. */
