@@ -94,8 +94,6 @@ internal fun PlayerRuntimeController.maybeRunAutomaticSubtitleSync(
     val player = _exoPlayer ?: return
     val useLibass = requestedUseLibassByUser || activePlayerUsesLibass
 
-    showAutoSyncToast(context.getString(R.string.autosync_toast_analyzing))
-
     if (!canAttachAddonSubtitleViaSidecar(selectedSubtitle)) {
         showAutoSyncToast(context.getString(R.string.autosync_toast_failed_unsupported))
         return
@@ -279,15 +277,18 @@ internal fun PlayerRuntimeController.maybeRunAutomaticSubtitleSync(
             setSubtitleDelayMs(targetMs = 0, showOverlay = false)
             AutoSyncSyncedSubtitle.mark(chosenSubtitle.url)
 
-            showAutoSyncToast(
-                context.getString(
-                    when {
-                        chosenSubtitle.url != selectedUrl -> R.string.autosync_toast_synced_replaced
-                        withinToleranceMs != null -> R.string.autosync_toast_in_sync
-                        else -> R.string.autosync_toast_synced
-                    },
-                ),
-            )
+            // Timing kept within the tolerance changes nothing on screen, so there is nothing to say.
+            if (withinToleranceMs == null) {
+                showAutoSyncToast(
+                    context.getString(
+                        if (chosenSubtitle.url != selectedUrl) {
+                            R.string.autosync_toast_synced_replaced
+                        } else {
+                            R.string.autosync_toast_synced
+                        },
+                    ),
+                )
+            }
         } catch (cancel: CancellationException) {
             throw cancel
         } catch (error: Throwable) {

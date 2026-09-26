@@ -12,10 +12,8 @@
     <string name="autosync_thorough_description">Keep comparing other subtitles and embedded tracks for a closer match before syncing. When off, the first strong match is used sooner. Only confident matches are ever applied.</string>
 
     <!-- Player toasts -->
-    <string name="autosync_toast_analyzing">Auto Sync • Analyzing…</string>
     <string name="autosync_toast_synced">Auto Sync • Subtitles synced</string>
     <string name="autosync_toast_synced_replaced">Auto Sync • Switched to a better-matching subtitle</string>
-    <string name="autosync_toast_in_sync">Auto Sync • Subtitles already in sync</string>
     <string name="autosync_toast_failed">Auto Sync • Sync failed • subtitle timing not changed</string>
     <string name="autosync_toast_failed_no_reference">Auto Sync • No embedded subtitles to compare with • subtitle timing not changed</string>
     <string name="autosync_toast_failed_unsupported">Auto Sync • Subtitle format not supported • subtitle timing not changed</string>
