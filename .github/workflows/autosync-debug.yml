@@ -153,18 +153,18 @@ jobs:
             --stacktrace
 
       - name: Build installable APK
-        if: github.event_name == 'workflow_dispatch' && inputs.build_apk
+        if: (github.event_name == 'workflow_dispatch' && inputs.build_apk) || (github.event_name == 'push' && contains(github.event.head_commit.message, '[build arm32]'))
         run: |
           ./gradlew \
             :app:assembleFullDebug \
             --build-cache \
             --stacktrace
 
-      - name: Upload universal APK
-        if: github.event_name == 'workflow_dispatch' && inputs.build_apk
+      - name: Upload arm32 APK
+        if: (github.event_name == 'workflow_dispatch' && inputs.build_apk) || (github.event_name == 'push' && contains(github.event.head_commit.message, '[build arm32]'))
         uses: actions/upload-artifact@v4
         with:
-          name: NuvioTV-AutoSync-debug
-          path: app/build/outputs/apk/full/debug/app-full-universal-debug.apk
+          name: NuvioTV-AutoSync-arm32-debug
+          path: app/build/outputs/apk/full/debug/*armeabi-v7a*.apk
           if-no-files-found: error
           retention-days: 7
