@@ -64,8 +64,9 @@ internal object PlaybackThroughput {
         finish()
         networkBytes.set(0L)
         val appContext = context.applicationContext
-        return PlaybackThroughputSampler(streamUrl) { mbps ->
-            ConnectionSpeedEstimator.record(appContext, mbps)
+        ConnectionSpeedEstimator.ensureLoaded(appContext) // starts network tracking before the first tick
+        return PlaybackThroughputSampler(streamUrl) { network, mbps ->
+            ConnectionSpeedEstimator.record(appContext, network, mbps)
         }.also {
             sampler = it
             samplerUrl = streamUrl
