@@ -8,4 +8,6 @@
     <string name="player_audio_sync_synced">Subtitle sync confirmed (%1$s)</string>
     <string name="player_audio_sync_synced_rate">Subtitle sync confirmed (%1$s, frame rate corrected)</string>
     <string name="player_audio_sync_adjusted">Subtitle timing changed, re-synced (%1$s)</string>
+    <string name="audio_sync_show_statistics_title">Show AudioSync statistics</string>
+    <string name="audio_sync_show_statistics_subtitle">Shows a live panel in the top-left corner of the player with what audio sync has heard and why it is or isn\'t synced yet.</string>
 </resources>

@@ -17,6 +17,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.CloudDownload
 import androidx.compose.material.icons.filled.GraphicEq
+import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.NetworkCell
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.runtime.Composable
@@ -31,6 +32,7 @@ import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -39,6 +41,7 @@ import androidx.tv.material3.Card
 import androidx.tv.material3.CardDefaults
 import androidx.tv.material3.MaterialTheme
 import androidx.tv.material3.Text
+import com.nuvio.tv.R
 import com.nuvio.tv.ui.screens.player.audiosync.AudioSyncFallback
 import com.nuvio.tv.ui.screens.player.autosync.AutoSyncPreferences
 import com.nuvio.tv.ui.screens.player.audiosync.AudioSyncSettings
@@ -95,6 +98,20 @@ internal fun LazyListScope.audioSyncFallbackSettingsItems(enabled: Boolean) {
             subtitle = "Syncs much faster by reading a few short parts of the film ahead of playback, also on metered connections. Uses up to 150 MB per film.",
             isChecked = checked,
             onCheckedChange = AudioSyncSettings::setSamplingOnMobileData,
+            enabled = rowsEnabled && fallbackEnabled,
+        )
+    }
+
+    item(key = "audio_sync_show_statistics") {
+        val rowsEnabled = rowsEnabled(enabled)
+        val fallbackEnabled by AudioSyncSettings.fallbackEnabled.collectAsStateWithLifecycle()
+        val checked by AudioSyncSettings.showStatistics.collectAsStateWithLifecycle()
+        ToggleSettingsItem(
+            icon = Icons.Default.Info,
+            title = stringResource(R.string.audio_sync_show_statistics_title),
+            subtitle = stringResource(R.string.audio_sync_show_statistics_subtitle),
+            isChecked = checked,
+            onCheckedChange = AudioSyncSettings::setShowStatistics,
             enabled = rowsEnabled && fallbackEnabled,
         )
     }
